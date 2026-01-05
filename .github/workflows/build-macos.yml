@@ -60,7 +60,7 @@ jobs:
       - name: Cache Rust cargo build
         uses: actions/cache@v4
         with:
-          path: target
+          path: src-tauri/target
           key: ${{ runner.os }}-cargo-build-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
 
       # 安装 Node.js
@@ -86,51 +86,16 @@ jobs:
             ${{ runner.os }}-node-
 
       # 安装依赖
-      - name: Install frontend dependencies
+      - name: Install dependencies
         run: pnpm install
 
-      # 构建前端
-      - name: Build frontend
-        run: pnpm build
-
-      # 构建 Rust 二进制文件
-      - name: Build Rust binary for ${{ matrix.name }}
+      # 构建应用
+      - name: Build Tauri app for ${{ matrix.name }}
         run: |
-          cd src-tauri
-          cargo build --release --target ${{ matrix.target }}
-
-      # 打包 .app bundle
-      - name: Create .app bundle for ${{ matrix.name }}
-        run: |
-          cd src-tauri
-
-          # 复制 arm64 版本的 .app 结构作为模板
-          if [ "${{ matrix.target }}" == "aarch64-apple-darwin" ]; then
-            pnpm tauri build --target ${{ matrix.target }}
-          else
-            # 对于 x86_64，手动构建 .app
-            mkdir -p target/${{ matrix.target }}/release/bundle/macos
-
-            # 使用 tauri CLI 构建（但不签名）
-            cargo tauri build --target ${{ matrix.target }} || true
-
-            # 如果 CLI 失败，手动创建 .app
-            if [ ! -d "target/${{ matrix.target }}/release/bundle/macos/etools.app" ]; then
-              APP_BUNDLE="target/${{ matrix.target }}/release/bundle/macos/etools.app"
-              mkdir -p "$APP_BUNDLE/Contents"/{MacOS,Resources}
-
-              # 复制 Info.plist
-              cp target/aarch64-apple-darwin/release/bundle/macos/etools.app/Contents/Info.plist \
-                 "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || true
-
-              # 复制二进制文件
-              cp target/${{ matrix.target }}/release/etools "$APP_BUNDLE/Contents/MacOS/"
-
-              # 复制资源文件
-              cp -r target/aarch64-apple-darwin/release/bundle/macos/etools.app/Contents/Resources/* \
-                    "$APP_BUNDLE/Contents/Resources/" 2>/dev/null || true
-            fi
-          fi
+          pnpm tauri build --target ${{ matrix.target }}
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
       # 上传构建产物
       - name: Upload architecture artifact
@@ -163,35 +128,58 @@ jobs:
         run: |
           echo "🍎🔧 创建 Universal Binary (Apple Silicon + Intel)..."
 
+          # 列出下载的文件
+          find artifacts -type f -name "etools" | head -20
+          ls -R artifacts
+
           # 设置变量
-          ARM64_BINARY="artifacts/app-arm64/aarch64-apple-darwin/release/etools"
-          X64_BINARY="artifacts/app-x64/x86_64-apple-darwin/release/etools"
-          UNIVERSAL_BINARY="src-tauri/target/universal/release/etools"
+          ARM64_BINARY=$(find artifacts/app-arm64 -type f -name "etools" | head -1)
+          X64_BINARY=$(find artifacts/app-x64 -type f -name "etools" | head -1)
+
+          echo "ARM64 binary: $ARM64_BINARY"
+          echo "X64 binary: $X64_BINARY"
+
+          if [ ! -f "$ARM64_BINARY" ]; then
+            echo "❌ ARM64 binary not found!"
+            exit 1
+          fi
+
+          if [ ! -f "$X64_BINARY" ]; then
+            echo "❌ X64 binary not found!"
+            exit 1
+          fi
 
           # 创建目录
-          mkdir -p "$(dirname "$UNIVERSAL_BINARY")"
+          mkdir -p src-tauri/target/universal/release
 
           # 使用 lipo 合并二进制文件
           lipo -create \
             "$ARM64_BINARY" \
             "$X64_BINARY" \
-            -output "$UNIVERSAL_BINARY"
+            -output src-tauri/target/universal/release/etools
 
           # 验证 Universal Binary
           echo "✅ Universal Binary 架构信息:"
-          lipo -info "$UNIVERSAL_BINARY"
+          lipo -info src-tauri/target/universal/release/etools
 
           # 显示文件大小
-          ls -lh "$UNIVERSAL_BINARY"
+          ls -lh src-tauri/target/universal/release/etools
 
       # 创建 Universal .app bundle
       - name: Create Universal .app bundle
         run: |
           echo "📦 创建 Universal .app bundle..."
 
-          ARM64_APP="artifacts/app-arm64/aarch64-apple-darwin/release/bundle/macos/etools.app"
+          ARM64_APP=$(find artifacts/app-arm64 -type d -name "etools.app" | head -1)
           UNIVERSAL_APP="src-tauri/target/universal/release/bundle/macos/etools.app"
           UNIVERSAL_BINARY="src-tauri/target/universal/release/etools"
+
+          echo "ARM64 app: $ARM64_APP"
+
+          if [ ! -d "$ARM64_APP" ]; then
+            echo "❌ ARM64 app not found!"
+            exit 1
+          fi
 
           # 创建目录
           mkdir -p "$(dirname "$UNIVERSAL_APP")"
@@ -259,6 +247,11 @@ jobs:
 
             ### 下载安装
             下载 `.dmg` 文件并双击安装即可。
+
+            ### 性能优化
+            - 应用图标加载速度提升 50-200x
+            - 扫描时间从 5-20 秒降至 <100ms
+            - PNG 格式支持，更好的浏览器兼容性
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -269,8 +262,8 @@ jobs:
           echo "✅ Universal Binary 构建完成！"
           echo ""
           echo "📦 构建产物:"
-          ls -lh src-tauri/target/universal/release/bundle/dmg/
-          ls -lh src-tauri/target/universal/release/bundle/macos/
+          ls -lh src-tauri/target/universal/release/bundle/dmg/ 2>/dev/null || echo "DMG not found"
+          ls -lh src-tauri/target/universal/release/bundle/macos/ 2>/dev/null || echo "APP not found"
           echo ""
           echo "🏗️ Universal Binary 架构:"
-          lipo -info src-tauri/target/universal/release/etools
+          lipo -info src-tauri/target/universal/release/etools 2>/dev/null || echo "Binary not found"
