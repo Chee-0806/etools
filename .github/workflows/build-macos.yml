@@ -226,6 +226,11 @@ jobs:
           # 获取版本号
           VERSION=$(node -p "require('./package.json').version")
 
+          # 清理任何挂载的卷
+          echo "清理旧的挂载点..."
+          hdiutil detach /Volumes/etools -quiet 2>/dev/null || true
+          hdiutil info | grep "/Volumes/etools" | awk '{print $3}' | xargs -I {} hdiutil detach {} -quiet 2>/dev/null || true
+
           # 创建临时目录
           TEMP_DMG_DIR="dmg_temp"
           rm -rf "$TEMP_DMG_DIR"
@@ -247,6 +252,8 @@ jobs:
           # 创建 DMG
           echo "创建初始 DMG..."
           TEMP_DMG="$DMG_DIR/etools_${VERSION}_universal_temp.dmg"
+          rm -f "$TEMP_DMG" 2>/dev/null || true
+
           hdiutil create \
             -volname "etools" \
             -srcfolder "$TEMP_DMG_DIR" \
@@ -257,6 +264,9 @@ jobs:
 
           # 清理临时目录
           rm -rf "$TEMP_DMG_DIR"
+
+          # 等待一秒确保文件系统同步
+          sleep 1
 
           # 挂载 DMG 并重新签名内部的应用
           echo "挂载 DMG 进行重新签名..."
@@ -273,11 +283,14 @@ jobs:
             codesign -v "$MOUNT_POINT/etools.app" || true
           fi
 
-          # 卸载
-          hdiutil detach "$MOUNT_POINT" -quiet
+          # 强制卸载
+          echo "卸载 DMG..."
+          hdiutil detach "$MOUNT_POINT" -force 2>/dev/null || true
+          sleep 1
 
           # 重命名为最终 DMG
           FINAL_DMG="$DMG_DIR/etools_${VERSION}_universal.dmg"
+          rm -f "$FINAL_DMG" 2>/dev/null || true
           mv "$TEMP_DMG" "$FINAL_DMG"
 
           # 显示 DMG 信息
