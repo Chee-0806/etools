@@ -26,6 +26,23 @@
         "center": true,
         "hiddenTitle": true,
         "titleBarStyle": "Overlay"
+      },
+      {
+        "label": "settings",
+        "title": "etools Settings",
+        "width": 700,
+        "height": 600,
+        "minWidth": 600,
+        "minHeight": 500,
+        "resizable": false,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "center": true
       }
     ],
     "security": {

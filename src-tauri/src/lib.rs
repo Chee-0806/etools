@@ -27,6 +27,22 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
     Ok(())
 }
 
+// Show settings window
+#[tauri::command]
+fn show_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    let settings_window = app
+        .get_webview_window("settings")
+        .ok_or("Settings window not found")?;
+
+    if settings_window.is_visible().map_err(|e| e.to_string())? {
+        settings_window.set_focus().map_err(|e| e.to_string())?;
+    } else {
+        settings_window.show().map_err(|e| e.to_string())?;
+        settings_window.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -48,7 +64,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             toggle_window,
             hide_window,
-            show_window
+            show_window,
+            show_settings_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
