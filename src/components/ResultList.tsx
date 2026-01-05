@@ -68,7 +68,7 @@ const ResultItem = memo(({
             icon: string | null;
             icon_data_url: string | null;
           }>('get_app_icon_nsworkspace', {
-            app_path: result.path,
+            appPath: result.path,
           });
 
           console.log('[ResultItem] Icon response:', response);

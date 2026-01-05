@@ -126,68 +126,6 @@ impl AppMonitor {
         None
     }
 
-    /// Extract app icon from .app bundle using NSWorkspace API
-    /// This is much faster than using iconutil command
-    #[cfg(target_os = "macos")]
-    fn extract_app_icon(&self, contents_path: &Path, _info_plist_path: &Path) -> Option<String> {
-        use objc::runtime::Object;
-        use objc::{class, msg_send, sel, sel_impl};
-
-        // Reconstruct the full .app path from contents_path
-        let app_path = contents_path.parent()?.parent()?;
-        let app_path_str = app_path.to_str()?;
-
-        unsafe {
-            // Get NSWorkspace shared workspace
-            let workspace = class!(NSWorkspace);
-            let shared_workspace: *mut Object = msg_send![workspace, sharedWorkspace];
-
-            // Create NSString from path
-            let ns_string_class = class!(NSString);
-            let ns_path: *mut Object = msg_send![
-                ns_string_class,
-                stringWithUTF8String: app_path_str
-            ];
-
-            // Get icon for file using NSWorkspace
-            let icon: *mut Object = msg_send![
-                shared_workspace,
-                iconForFile: ns_path
-            ];
-
-            if icon.is_null() {
-                return None;
-            }
-
-            // Convert NSImage to TIFF representation
-            let tiff_data: *mut Object = msg_send![
-                icon,
-                TIFFRepresentation
-            ];
-
-            if tiff_data.is_null() {
-                return None;
-            }
-
-            // Get NSData bytes and length
-            let bytes: *const u8 = msg_send![tiff_data, bytes];
-            let length: usize = msg_send![tiff_data, length];
-
-            if bytes.is_null() || length == 0 {
-                return None;
-            }
-
-            // Create a slice from the raw pointer
-            let slice = std::slice::from_raw_parts(bytes, length);
-
-            // Convert to base64
-            use base64::prelude::*;
-            let base64_string = BASE64_STANDARD.encode(slice);
-
-            // Return as data URL (TIFF format)
-            Some(format!("data:image/tiff;base64,{base64_string}"))
-        }
-    }
 
     #[cfg(target_os = "windows")]
     fn scan_windows_apps(&self) -> Vec<ApplicationEntry> {
