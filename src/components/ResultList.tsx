@@ -1,0 +1,219 @@
+/**
+ * ResultList Component
+ * Displays search results with keyboard navigation support
+ *
+ * Optimized with:
+ * - React.memo to prevent unnecessary re-renders
+ * - Search highlighting
+ * - Smooth animations
+ * - Accessibility enhancements
+ */
+
+import { memo, useMemo } from "react";
+import { SearchResult } from "@/types/search";
+import "@/styles/components/ResultList.css";
+
+interface ResultListProps {
+  results: SearchResult[];
+  selectedIndex: number;
+  onSelectIndex: (index: number) => void;
+  onExecute: (index: number) => void;
+  query?: string;
+  id?: string;
+}
+
+// Memoized result item component for performance
+const ResultItem = memo(({
+  result,
+  isSelected,
+  onClick,
+  onMouseEnter,
+  query
+}: {
+  result: SearchResult;
+  isSelected: boolean;
+  onClick: () => void;
+  onMouseEnter: () => void;
+  query?: string;
+}) => {
+  // Memoize highlighted title to avoid recalculating on each render
+  const highlightedTitle = useMemo(() => {
+    if (!query || !result.title) return result.title;
+
+    // Simple case-insensitive highlight
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = result.title.split(regex);
+
+    return parts.map((part, index) => {
+      if (regex.test(part)) {
+        return <mark key={index} className="highlight">{part}</mark>;
+      }
+      return part;
+    });
+  }, [query, result.title]);
+
+  // Memoize highlighted subtitle
+  const highlightedSubtitle = useMemo(() => {
+    if (!query || !result.subtitle) return result.subtitle;
+
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = result.subtitle.split(regex);
+
+    return parts.map((part, index) => {
+      if (regex.test(part)) {
+        return <mark key={index} className="highlight">{part}</mark>;
+      }
+      return part;
+    });
+  }, [query, result.subtitle]);
+
+  // Check if icon is an emoji/symbol (short Unicode string) vs a URL
+  // Use Unicode property escapes to detect emoji and symbols
+  // This handles various emoji sequences including ⌨️ (U+2328 + U+FE0F)
+  const isEmojiIcon = result.icon && /^[\p{Emoji}\p{Symbol}\p{Other_Symbol}]/u.test(result.icon);
+
+  return (
+    <li
+      className={`result-item ${isSelected ? 'selected' : ''}`}
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      role="option"
+      aria-selected={isSelected}
+      tabIndex={isSelected ? 0 : -1}
+    >
+      {/* Icon */}
+      <div className="result-item__icon">
+        {result.icon ? (
+          isEmojiIcon ? (
+            <span className="result-item__icon-emoji" aria-hidden="true">
+              {result.icon}
+            </span>
+          ) : (
+            <img
+              src={result.icon}
+              alt=""
+              className="result-item__icon-img"
+              loading="lazy"
+            />
+          )
+        ) : (
+          <div className="result-item__icon-placeholder" aria-hidden="true">
+            {getTypeIcon(result.type)}
+          </div>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="result-item__content">
+        <div className="result-item__title">{highlightedTitle}</div>
+        {result.subtitle && (
+          <div className="result-item__subtitle">
+            {highlightedSubtitle}
+          </div>
+        )}
+        {result.source && (
+          <div className="result-item__source" aria-label={`Source: ${result.source}`}>
+            {result.source}
+          </div>
+        )}
+      </div>
+
+      {/* Meta info */}
+      {(result.score !== undefined || result.type) && (
+        <div className="result-item__meta">
+          {result.score !== undefined && result.score > 0.7 && (
+            <div className="result-item__badge" aria-label="High match">
+              Top Match
+            </div>
+          )}
+        </div>
+      )}
+    </li>
+  );
+});
+
+ResultItem.displayName = "ResultItem";
+
+// Main ResultList component with memo
+export const ResultList = memo(({
+  results,
+  selectedIndex,
+  onSelectIndex,
+  onExecute,
+  query = "",
+  id = "search-results"
+}: ResultListProps) => {
+  // Empty state - only show when there's a query but no results
+  if (results.length === 0 && query) {
+    return (
+      <div
+        className="result-list empty"
+        role="listbox"
+        aria-label="搜索结果"
+        id={id}
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <div className="empty-state">
+          <div className="empty-state__icon" aria-hidden="true">🔍</div>
+          <p className="empty-state__text">
+            {`没有找到 "${query}" 的结果`}
+          </p>
+          <p className="empty-state__suggestion">
+            尝试不同的关键词或检查拼写
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // No results and no query - don't render anything
+  if (results.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="result-list"
+      role="listbox"
+      aria-label="搜索结果"
+      id={id}
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <ul className="result-list__items" role="presentation">
+        {results.map((result, index) => (
+          <ResultItem
+            key={`${result.type}-${result.id}`}
+            result={result}
+            isSelected={index === selectedIndex}
+            onClick={() => onExecute(index)}
+            onMouseEnter={() => onSelectIndex(index)}
+            query={query}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+});
+
+ResultList.displayName = "ResultList";
+
+/**
+ * Get icon character for result type
+ * Memoized to avoid recreating on each call
+ */
+const getTypeIcon = (type: SearchResult['type']): string => {
+  const icons: Record<SearchResult['type'], string> = {
+    app: '📱',
+    file: '📄',
+    clipboard: '📋',
+    bookmark: '⭐',
+    history: '🕐',
+    plugin: '🔌',
+    action: '⚡',
+    url: '🔗',
+    color: '🎨',
+  };
+  return icons[type] || '•';
+};

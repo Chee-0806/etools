@@ -1,0 +1,44 @@
+/**
+ * PluginManager Component Styles
+ */
+
+.plugin-manager {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.plugin-manager-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.plugin-manager-tab {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.plugin-manager-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.plugin-manager-tab.active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.plugin-manager-content {
+  flex: 1;
+  overflow: auto;
+}

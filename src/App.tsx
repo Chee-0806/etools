@@ -1,214 +1,170 @@
-import { useState, useEffect, useRef } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
-import { register } from "@tauri-apps/plugin-global-shortcut";
-import "./App.css";
+/**
+ * Productivity Launcher Main App
+ * Quick app/file/web search with plugin support
+ *
+ * Optimized with:
+ * - Modern design system
+ * - Performance optimizations (memo, useMemo, useCallback)
+ * - Enhanced accessibility
+ * - Smooth animations and transitions
+ */
 
-interface SearchResult {
-  id: string;
-  title: string;
-  subtitle?: string;
-  icon?: string;
-  action: () => void;
+import React, { useEffect, useState, useMemo } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { SearchWindow } from "@/components/SearchWindow";
+import { ResultWindow } from "@/components/ResultWindow";
+import { SettingsWindow } from "@/components/SettingsWindow";
+import { PluginPopupWindow } from "@/components/PluginPopupWindow";
+import { ComponentShowcase } from "@/components/ui";
+import { PluginStoreProvider } from "@/services/pluginStateStore";
+import { useTheme } from "@/hooks/useTheme";
+import NotificationSystem from "@/components/PluginManager/NotificationSystem";
+import { pluginLoader } from "@/services/pluginLoader";
+import "@/i18n"; // Initialize i18n
+import "@/styles/design-tokens.css";
+import "@/styles/global.css";
+import "@/styles/theme-light.css";
+import "@/styles/theme-dark.css";
+import "@/styles/components/SearchWindow.css";
+import "@/styles/components/ResultWindow.css";
+import "@/styles/components/SettingsWindow.css";
+import "@/styles/components/PluginPopupWindow.css";
+import "@/styles/components/PluginManager/PluginManager.css";
+import "@/styles/components/SidebarPanel.css";
+
+// Check if running in Tauri environment
+const isTauri = () => typeof window !== 'undefined' && (window as any).__TAURI__ !== undefined;
+
+// Type declaration for Tauri environment detection
+declare global {
+  interface Window {
+    __TAURI__?: unknown;
+  }
 }
 
 function App() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [viewMode, setViewMode] = useState<'search' | 'showcase' | 'plugins'>('search');
 
-  // Auto focus input when window shows
-  useEffect(() => {
-    inputRef.current?.focus();
+  // CRITICAL: 窗口路由逻辑
+  // NOTE: 这是 Tauri 框架的特殊情况，不符合架构原则但属于例外
+  // Tauri 的设计是多个窗口共享同一个前端入口（App.tsx）
+  // 因此必须在前端通过 window label 判断当前是哪个窗口来渲染对应的 UI
+  // 这是 Tauri 官方推荐的做法，不是窗口管理操作
+  const [windowLabel, setWindowLabel] = useState<string>(() => {
+    if (isTauri()) {
+      return getCurrentWindow().label;
+    }
+    return 'main';
+  });
+  const { resolvedTheme } = useTheme();
 
-    // Register global shortcut
-    const setupShortcut = async () => {
-      try {
-        // Detect platform for shortcut
-        const isMac = navigator.userAgent.includes("Mac");
-        const shortcut = isMac ? "Command+Space" : "Alt+Space";
-
-        await register(shortcut, async () => {
-          const window = getCurrentWindow();
-          const isVisible = await window.isVisible();
-          if (isVisible) {
-            await window.hide();
-          } else {
-            await window.show();
-            await window.setFocus();
-          }
-        });
-      } catch (e) {
-        console.error("Failed to register global shortcut:", e);
-      }
-    };
-
-    setupShortcut();
+  /**
+   * Lazy load PluginManager component
+   */
+  const PluginManagerComponent = useMemo(() => {
+    return React.lazy(() => import('@/components/PluginManager/PluginManager'));
   }, []);
 
-  // Handle keyboard navigation
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedIndex((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter" && results.length > 0) {
-        e.preventDefault();
-        results[selectedIndex]?.action();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        hideWindow();
+    const loadBuiltInPlugins = async () => {
+      try {
+        console.log('[App] Loading built-in plugins...');
+        await pluginLoader.loadBuiltInPlugins();
+        console.log('[App] Built-in plugins loaded successfully');
+      } catch (error) {
+        console.error('[App] Failed to load built-in plugins:', error);
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [results, selectedIndex]);
+    loadBuiltInPlugins();
+  }, []);
 
-  // Hide window
-  const hideWindow = async () => {
-    try {
-      await invoke("hide_window");
-    } catch (e) {
-      console.error("Failed to hide window:", e);
-    }
-  };
-
-  // Show settings window
-  const showSettings = async () => {
-    try {
-      await invoke("show_settings_window");
-    } catch (e) {
-      console.error("Failed to show settings:", e);
-    }
-  };
-
-  // Search logic (placeholder for now)
   useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      return;
+    console.log('[App] ========== App useEffect triggered ==========');
+    console.log('[App] typeof window:', typeof window);
+    console.log('[App] window.__TAURI__:', (window as any).__TAURI__);
+    console.log('[App] isTauri():', isTauri());
+
+    if (isTauri()) {
+      console.log('[App] ✓ Running in Tauri environment');
+      console.log('[App] Current window label:', windowLabel);
+
+      // NOTE: Global shortcut is now registered in Rust backend (lib.rs)
+      // The frontend registration has been removed to avoid conflicts.
+      console.log('[App] Global shortcut is handled by Rust backend');
+    } else {
+      console.log('[App] ✗ Not running in Tauri environment');
     }
+  }, [windowLabel]);
 
-    // TODO: Implement actual search
-    // For now, just show some demo results
-    const demoResults: SearchResult[] = [
-      {
-        id: "1",
-        title: `Search for "${query}"`,
-        subtitle: "Press Enter to search",
-        action: () => {
-          console.log("Searching for:", query);
-          hideWindow();
-        },
-      },
-    ];
-    setResults(demoResults);
-    setSelectedIndex(0);
-  }, [query]);
+  // Render based on window label
+  // - 'main' window: SearchWindow (input only)
+  // - 'results' window: ResultWindow (results list)
+  // - 'settings' window: SettingsWindow (settings panel)
+  // - 'plugin-popup' window: PluginPopupWindow (universal popup for plugins)
+  // - Others: ComponentShowcase (dev mode)
+  if (windowLabel === 'results') {
+    return <ResultWindow />;
+  }
 
-  // Handle blur (hide window when clicking outside)
-  const handleBlur = () => {
-    setTimeout(() => {
-      if (document.activeElement?.tagName !== "INPUT") {
-        hideWindow();
-      }
-    }, 100);
-  };
+  if (windowLabel === 'settings') {
+    return (
+      <PluginStoreProvider>
+        <SettingsWindow />
+      </PluginStoreProvider>
+    );
+  }
+
+  if (windowLabel === 'plugin-popup') {
+    return <PluginPopupWindow />;
+  }
 
   return (
-    <div className="app" onMouseDown={handleBlur}>
-      <div className="search-container">
-        <div className="search-input-wrapper">
-          <svg
-            className="search-icon"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.35-4.35" />
-          </svg>
-          <input
-            ref={inputRef}
-            type="text"
-            className="search-input"
-            placeholder="Search apps, files, plugins..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoFocus
-          />
-          {query && (
+    <PluginStoreProvider>
+      <NotificationSystem />
+      <div className="app">
+        {/* View mode toggle - only show in main window */}
+        {/* DISABLED: These buttons were blocking the search input
+        {windowLabel === 'main' && (
+          <div className="view-toggles">
             <button
-              className="clear-button"
-              onClick={() => setQuery("")}
-              aria-label="Clear"
+              className={`view-toggle ${viewMode === 'search' ? 'active' : ''}`}
+              onClick={() => setViewMode('search')}
+              aria-label="搜索视图"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
-              </svg>
+              🔍 搜索
             </button>
-          )}
-          <button
-            className="settings-button"
-            onClick={showSettings}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
+            <button
+              className={`view-toggle ${viewMode === 'plugins' ? 'active' : ''}`}
+              onClick={() => setViewMode('plugins')}
+              aria-label="插件管理"
             >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M12 1v6m0 6v6" />
-              <path d="m4.93 4.93 4.24 4.24m5.66 5.66 4.24 4.24M1 12h6m6 0h6M4.93 19.07l4.24-4.24m5.66-5.66 4.24-4.24" />
-            </svg>
-          </button>
-        </div>
-
-        {results.length > 0 && (
-          <div className="results-list">
-            {results.map((result, index) => (
-              <div
-                key={result.id}
-                className={`result-item ${
-                  index === selectedIndex ? "selected" : ""
-                }`}
-                onClick={() => result.action()}
-                onMouseEnter={() => setSelectedIndex(index)}
-              >
-                {result.icon && <span className="result-icon">{result.icon}</span>}
-                <div className="result-content">
-                  <div className="result-title">{result.title}</div>
-                  {result.subtitle && (
-                    <div className="result-subtitle">{result.subtitle}</div>
-                  )}
-                </div>
-              </div>
-            ))}
+              🧩 插件
+            </button>
+            <button
+              className={`view-toggle ${viewMode === 'showcase' ? 'active' : ''}`}
+              onClick={() => setViewMode('showcase')}
+              aria-label="组件展示"
+            >
+              🎨 组件
+            </button>
           </div>
         )}
+        */}
+
+        {viewMode === 'search' && <SearchWindow />}
+        {viewMode === 'plugins' && (
+          <React.Suspense fallback={<div className="loading">加载中...</div>}>
+            <PluginManagerComponent
+              showMarketplace={false}
+              showInstall={false}
+              initialView="installed"
+            />
+          </React.Suspense>
+        )}
+        {viewMode === 'showcase' && <ComponentShowcase />}
       </div>
-    </div>
+    </PluginStoreProvider>
   );
 }
 
