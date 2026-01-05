@@ -137,7 +137,7 @@ impl AppMonitor {
         let resources_path = contents_path.join("Resources");
         let icns_path = if let Some(name) = &icon_name {
             let path = resources_path.join(name);
-            if path.extension().map_or(false, |e| e == "icns") {
+            if path.extension().is_some_and(|e| e == "icns") {
                 path
             } else {
                 path.with_extension("icns")
@@ -182,7 +182,7 @@ impl AppMonitor {
                         // Convert to base64
                         use base64::prelude::*;
                         let base64_string = BASE64_STANDARD.encode(&png_data);
-                        return Some(format!("data:image/png;base64,{}", base64_string));
+                        return Some(format!("data:image/png;base64,{base64_string}"));
                     }
                 }
 
