@@ -213,14 +213,9 @@ fn hide_settings_window(app: tauri::AppHandle) -> Result<(), String> {
 // Show plugin popup - universal popup for all plugins
 #[tauri::command]
 fn show_plugin_popup(app: tauri::AppHandle, data: serde_json::Value) -> Result<(), String> {
-    println!("[show_plugin_popup] Called with data: {}", data);
-
     if let Some(popup_window) = app.get_webview_window("plugin-popup") {
-        println!("[show_plugin_popup] Found plugin-popup window");
-
         // Emit popup data to window
         popup_window.emit("plugin-popup", &data).map_err(|e| e.to_string())?;
-        println!("[show_plugin_popup] Emitted plugin-popup event");
 
         // Center popup window on screen
         let monitor = popup_window.current_monitor()
@@ -249,10 +244,7 @@ fn show_plugin_popup(app: tauri::AppHandle, data: serde_json::Value) -> Result<(
         // Show popup window
         popup_window.show().map_err(|e| e.to_string())?;
         popup_window.set_focus().map_err(|e| e.to_string())?;
-
-        println!("[show_plugin_popup] Popup window shown successfully");
     } else {
-        println!("[show_plugin_popup] ERROR: Plugin popup window not found!");
         return Err("Plugin popup window not found".to_string());
     }
     Ok(())
@@ -261,8 +253,6 @@ fn show_plugin_popup(app: tauri::AppHandle, data: serde_json::Value) -> Result<(
 // Hide plugin popup
 #[tauri::command]
 fn hide_plugin_popup(app: tauri::AppHandle) -> Result<(), String> {
-    println!("[hide_plugin_popup] Hiding plugin popup");
-
     // Hide popup window
     if let Some(popup_window) = app.get_webview_window("plugin-popup") {
         popup_window.hide().map_err(|e| e.to_string())?;
@@ -274,7 +264,6 @@ fn hide_plugin_popup(app: tauri::AppHandle) -> Result<(), String> {
         main_window.set_focus().map_err(|e| e.to_string())?;
     }
 
-    println!("[hide_plugin_popup] Plugin popup hidden");
     Ok(())
 }
 

@@ -206,8 +206,6 @@ pub fn get_app_icon_nsworkspace(app_path: String) -> Result<GetAppIconResponse, 
         let base64_string = BASE64_STANDARD.encode(slice);
         let data_url = format!("data:image/png;base64,{base64_string}");
 
-        println!("[get_app_icon_nsworkspace] Successfully loaded PNG icon for {}, size: {} bytes", app_path, length);
-
         Ok(GetAppIconResponse {
             icon: Some(data_url.clone()),
             icon_data_url: Some(data_url),
