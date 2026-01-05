@@ -1,4 +1,4 @@
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 // Toggle window visibility
 #[tauri::command]
