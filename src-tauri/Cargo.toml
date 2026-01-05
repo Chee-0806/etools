@@ -39,4 +39,5 @@ anyhow = "1.0"
 tokio = { version = "1.35", features = ["sync", "rt-multi-thread", "macros"] }
 rayon = "1.8"
 chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
 

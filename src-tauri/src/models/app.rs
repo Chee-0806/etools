@@ -10,6 +10,10 @@ pub struct ApplicationEntry {
     pub id: String,
     pub name: String,
     pub executable_path: String,
+    /// Path to the .app bundle (macOS) or application directory
+    /// Used for icon extraction and other operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_path: Option<String>,
     pub icon: Option<String>,
     pub usage_count: u32,
     pub last_launched: Option<i64>,

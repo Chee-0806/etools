@@ -7,6 +7,7 @@
  * - Search highlighting
  * - Smooth animations
  * - Accessibility enhancements
+ * - Fast icon loading using iconutil command
  */
 
 import { memo, useMemo } from "react";
@@ -36,6 +37,10 @@ const ResultItem = memo(({
   onMouseEnter: () => void;
   query?: string;
 }) => {
+  // Icon is now provided by backend (unified_search returns icon directly)
+  const iconUrl = result.icon || null;
+  const isEmojiIcon = iconUrl && /^[\p{Emoji}\p{Symbol}\p{Other_Symbol}]/u.test(iconUrl);
+
   // Memoize highlighted title to avoid recalculating on each render
   const highlightedTitle = useMemo(() => {
     if (!query || !result.title) return result.title;
@@ -67,11 +72,6 @@ const ResultItem = memo(({
     });
   }, [query, result.subtitle]);
 
-  // Check if icon is an emoji/symbol (short Unicode string) vs a URL
-  // Use Unicode property escapes to detect emoji and symbols
-  // This handles various emoji sequences including ⌨️ (U+2328 + U+FE0F)
-  const isEmojiIcon = result.icon && /^[\p{Emoji}\p{Symbol}\p{Other_Symbol}]/u.test(result.icon);
-
   return (
     <li
       className={`result-item ${isSelected ? 'selected' : ''}`}
@@ -83,14 +83,14 @@ const ResultItem = memo(({
     >
       {/* Icon */}
       <div className="result-item__icon">
-        {result.icon ? (
+        {iconUrl ? (
           isEmojiIcon ? (
             <span className="result-item__icon-emoji" aria-hidden="true">
-              {result.icon}
+              {iconUrl}
             </span>
           ) : (
             <img
-              src={result.icon}
+              src={iconUrl}
               alt=""
               className="result-item__icon-img"
               loading="lazy"

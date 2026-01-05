@@ -18,6 +18,9 @@ export function SearchResultItem({
   onClick,
   onMouseEnter,
 }: SearchResultItemProps) {
+  // Icon is now provided by backend (unified_search returns icon directly)
+  const iconUrl = result.icon || null;
+
   return (
     <div
       className={`search-result-item ${isSelected ? 'selected' : ''}`}
@@ -27,8 +30,8 @@ export function SearchResultItem({
       aria-selected={isSelected}
     >
       <div className="search-result-item__icon">
-        {result.icon ? (
-          <img src={result.icon} alt="" className="search-result-item__icon-img" />
+        {iconUrl ? (
+          <img src={iconUrl} alt="" className="search-result-item__icon-img" />
         ) : (
           <div className="search-result-item__icon-placeholder">
             {getTypeIcon(result.type)}

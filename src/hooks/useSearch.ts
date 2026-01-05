@@ -141,13 +141,14 @@ export function useSearch(options: UseSearchOptions = {}) {
             searchResults = [actionResult];
           } else if (isTauri()) {
             // Use backend unified search
+            // Note: Backend uses #[serde(rename = "type")] so the field is "type" in JSON
             const response = await invoke<{
               results: Array<{
                 id: string;
                 title: string;
                 subtitle: string;
                 icon?: string;
-                result_type: string;
+                type: string;
                 score: number;
                 path: string;
                 frequency: number;
@@ -163,8 +164,9 @@ export function useSearch(options: UseSearchOptions = {}) {
               title: r.title,
               subtitle: r.subtitle,
               icon: r.icon,
-              type: r.result_type as SearchResult['type'],
+              type: r.type as SearchResult['type'],
               score: r.score,
+              path: r.path,
               action: async () => {
                 await invoke('launch_app', { path: r.path });
               },

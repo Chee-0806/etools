@@ -118,6 +118,7 @@ export function ResultWindow() {
     const unlistenPromise = listen<ShowResultsEvent>('show-results', (event) => {
       logger.log('ResultWindow', `Received show-results event: ${event.payload.results.length} results`);
       logger.log('ResultWindow', `Query: "${event.payload.query}"`);
+
       setResults(event.payload.results);
       setQuery(event.payload.query);
       setSelectedIndex(0);

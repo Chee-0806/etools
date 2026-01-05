@@ -188,10 +188,10 @@ pub fn unified_search(
                 id: app.id.clone(),
                 title: app.name.clone(),
                 subtitle: app.executable_path.clone(),
-                icon: app.icon.clone(),
+                icon: app.icon.clone(), // Return icon as-is (None or cached path)
                 result_type: "app".to_string(),
                 score: exact_match + starts_with + contains + alternate_score + initialism_score + frequency_boost,
-                path: app.executable_path.clone(),
+                path: app.app_path.clone().unwrap_or_else(|| app.executable_path.clone()),
                 frequency: app.usage_count,
             }
         })

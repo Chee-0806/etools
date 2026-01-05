@@ -114,6 +114,7 @@ pub fn track_app_usage(
 }
 
 /// Get application icon (T052)
+/// Returns base64-encoded PNG data from cached app entry
 #[tauri::command]
 pub fn get_app_icon(
     app_id: String,
@@ -122,10 +123,10 @@ pub fn get_app_icon(
     let monitor = state.app_monitor.lock().map_err(|e| e.to_string())?;
 
     if let Some(app) = monitor.get_app(&app_id) {
-        // Return the icon path from the app entry
+        // Icon is already extracted and cached as base64 data URL during app scanning
         return Ok(GetAppIconResponse {
             icon: app.icon.clone(),
-            icon_data_url: None, // Could implement base64 encoding if needed
+            icon_data_url: app.icon.clone(),
         });
     }
 

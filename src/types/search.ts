@@ -27,6 +27,7 @@ export interface SearchResult {
   type: SearchResultType;
   score: number;          // Relevance score (0-1)
   source?: string;        // Source plugin/app ID
+  path?: string;          // Path to app bundle or file (for icon loading)
   action: () => void | Promise<void>;
   metadata?: Record<string, unknown>; // Additional metadata for specific result types
   colorData?: ColorData;  // Color conversion data (T040)

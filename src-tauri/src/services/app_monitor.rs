@@ -87,6 +87,9 @@ impl AppMonitor {
             .map(|exe| contents_path.join("MacOS").join(exe))
             .unwrap_or_else(|| app_path.to_path_buf());
 
+        // Extract app icon (currently disabled, returns None)
+        let icon = self.extract_app_icon(&contents_path, &info_plist_path);
+
         // Build alternate names: include .app filename if different from display name
         let alternate_names = if name != display_name {
             Some(vec![name.clone()])
@@ -98,7 +101,8 @@ impl AppMonitor {
             id: hash_string(&executable_path.to_string_lossy()),
             name: display_name,
             executable_path: executable_path.to_string_lossy().to_string(),
-            icon: None, // TODO: Extract from .app bundle
+            app_path: Some(app_path.to_string_lossy().to_string()),
+            icon,
             usage_count: 0,
             last_launched: None,
             platform: "macos".to_string(),
@@ -118,6 +122,79 @@ impl AppMonitor {
                 }
             }
         }
+        None
+    }
+
+    /// Extract app icon from .app bundle and convert to base64 data URL
+    #[cfg(target_os = "macos")]
+    fn extract_app_icon(&self, contents_path: &Path, info_plist_path: &Path) -> Option<String> {
+        use std::process::Command;
+
+        // Get icon filename from Info.plist
+        let icon_name = self.read_plist_value(info_plist_path, "CFBundleIconFile");
+
+        // Build path to .icns file
+        let resources_path = contents_path.join("Resources");
+        let icns_path = if let Some(name) = &icon_name {
+            let path = resources_path.join(name);
+            if path.extension().map_or(false, |e| e == "icns") {
+                path
+            } else {
+                path.with_extension("icns")
+            }
+        } else {
+            // Fallback to AppIcon.icns
+            resources_path.join("AppIcon.icns")
+        };
+
+        if !icns_path.exists() {
+            return None;
+        }
+
+        // Create temp directory for iconset
+        let temp_dir = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
+        let iconset_dir = format!("{}/icon_{}.iconset", temp_dir, std::process::id());
+
+        // Convert .icns to .iconset using iconutil
+        let iconutil_output = Command::new("iconutil")
+            .args(["-c", "iconset", "-o", &iconset_dir, &icns_path.to_string_lossy()])
+            .output();
+
+        match iconutil_output {
+            Ok(result) if result.status.success() => {
+                // Try to get the best icon (prefer 64x64 or larger)
+                let icon_candidates = vec![
+                    format!("{}/icon_64x64.png", iconset_dir),
+                    format!("{}/icon_128x128.png", iconset_dir),
+                    format!("{}/icon_32x32@2x.png", iconset_dir),
+                    format!("{}/icon_128x128@2x.png", iconset_dir),
+                    format!("{}/icon_256x256.png", iconset_dir),
+                    format!("{}/icon_256x256@2x.png", iconset_dir),
+                    format!("{}/icon_512x512.png", iconset_dir),
+                    format!("{}/icon_32x32.png", iconset_dir),
+                ];
+
+                for candidate in icon_candidates {
+                    if let Ok(png_data) = fs::read(&candidate) {
+                        // Clean up iconset directory
+                        let _ = fs::remove_dir_all(&iconset_dir);
+
+                        // Convert to base64
+                        use base64::prelude::*;
+                        let base64_string = BASE64_STANDARD.encode(&png_data);
+                        return Some(format!("data:image/png;base64,{}", base64_string));
+                    }
+                }
+
+                // Clean up iconset directory
+                let _ = fs::remove_dir_all(&iconset_dir);
+            }
+            _ => {
+                // Clean up on failure
+                let _ = fs::remove_dir_all(&iconset_dir);
+            }
+        }
+
         None
     }
 

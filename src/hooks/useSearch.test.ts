@@ -30,7 +30,7 @@ describe('useSearch', () => {
             {
               id: '1',
               title: 'Test App',
-              result_type: 'app',
+              type: 'app',
               path: '/usr/bin/test',
             }
           ],
@@ -62,7 +62,7 @@ describe('useSearch', () => {
             {
               id: '1',
               title: 'Test App',
-              result_type: 'app',
+              type: 'app',
               path: '/usr/bin/test',
             }
           ],
@@ -141,7 +141,7 @@ describe('useSearch', () => {
           if (cmd === 'unified_search') {
             resolve({
               results: [
-                { id: '1', title: 'Test App', result_type: 'app', path: '/usr/bin/test', subtitle: 'Test App' },
+                { id: '1', title: 'Test App', type: 'app', path: '/usr/bin/test', subtitle: 'Test App' },
               ],
               total: 1,
               query_time: 0,
@@ -350,8 +350,8 @@ describe('useSearch', () => {
         if (cmd === 'unified_search') {
           return {
             results: [
-              { id: '1', title: 'Test App 1', result_type: 'app', path: '/usr/bin/test1', subtitle: 'Test App 1' },
-              { id: '2', title: 'Test App 2', result_type: 'app', path: '/usr/bin/test2', subtitle: 'Test App 2' },
+              { id: '1', title: 'Test App 1', type: 'app', path: '/usr/bin/test1', subtitle: 'Test App 1' },
+              { id: '2', title: 'Test App 2', type: 'app', path: '/usr/bin/test2', subtitle: 'Test App 2' },
             ],
             total: 2,
             query_time: 0,
@@ -385,7 +385,7 @@ describe('useSearch', () => {
         if (cmd === 'unified_search') {
           return {
             results: [
-              { id: '1', title: 'Test App', result_type: 'app', path: '/usr/bin/test', subtitle: 'Test App' },
+              { id: '1', title: 'Test App', type: 'app', path: '/usr/bin/test', subtitle: 'Test App' },
             ],
             total: 1,
             query_time: 0,
@@ -417,8 +417,8 @@ describe('useSearch', () => {
         if (cmd === 'unified_search') {
           return {
             results: [
-              { id: '1', title: 'Test App 1', result_type: 'app', path: '/usr/bin/test1', subtitle: 'Test App 1' },
-              { id: '2', title: 'Test App 2', result_type: 'app', path: '/usr/bin/test2', subtitle: 'Test App 2' },
+              { id: '1', title: 'Test App 1', type: 'app', path: '/usr/bin/test1', subtitle: 'Test App 1' },
+              { id: '2', title: 'Test App 2', type: 'app', path: '/usr/bin/test2', subtitle: 'Test App 2' },
             ],
             total: 2,
             query_time: 0,
@@ -455,7 +455,7 @@ describe('useSearch', () => {
         if (cmd === 'unified_search') {
           return {
             results: [
-              { id: '1', title: 'Test App', result_type: 'app', path: '/usr/bin/test', subtitle: 'Test App' },
+              { id: '1', title: 'Test App', type: 'app', path: '/usr/bin/test', subtitle: 'Test App' },
             ],
             total: 1,
             query_time: 0,
@@ -487,9 +487,9 @@ describe('useSearch', () => {
         if (cmd === 'unified_search') {
           return {
             results: [
-              { id: '1', title: 'Test App 1', result_type: 'app', path: '/usr/bin/test1', subtitle: 'Test App 1' },
-              { id: '2', title: 'Test App 2', result_type: 'app', path: '/usr/bin/test2', subtitle: 'Test App 2' },
-              { id: '3', title: 'Test App 3', result_type: 'app', path: '/usr/bin/test3', subtitle: 'Test App 3' },
+              { id: '1', title: 'Test App 1', type: 'app', path: '/usr/bin/test1', subtitle: 'Test App 1' },
+              { id: '2', title: 'Test App 2', type: 'app', path: '/usr/bin/test2', subtitle: 'Test App 2' },
+              { id: '3', title: 'Test App 3', type: 'app', path: '/usr/bin/test3', subtitle: 'Test App 3' },
             ],
             total: 3,
             query_time: 0,
@@ -524,7 +524,7 @@ describe('useSearch', () => {
         results: [{
           id: '1',
           title: 'Test App',
-          result_type: 'app',
+          type: 'app',
           path: '/usr/bin/test',
         }],
         total: 1,
@@ -558,7 +558,7 @@ describe('useSearch', () => {
         results: [{
           id: '1',
           title: 'Test App',
-          result_type: 'app',
+          type: 'app',
         }],
         total: 1,
         query_time: 0,
@@ -601,7 +601,7 @@ describe('useSearch', () => {
         results: [{
           id: 'app-1',
           title: 'Test App',
-          result_type: 'app',
+          type: 'app',
         }],
         total: 1,
         query_time: 0,
@@ -633,7 +633,7 @@ describe('useSearch', () => {
         results: [{
           id: '1',
           title: 'Test',
-          result_type: 'app',
+          type: 'app',
         }],
         total: 1,
         query_time: 0,
