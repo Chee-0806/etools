@@ -164,20 +164,16 @@ pub fn get_app_icon_nsworkspace(app_path: String) -> Result<GetAppIconResponse, 
         ];
 
         if icon.is_null() {
-            return Err("Failed to get icon".to_string());
+            return Err("Failed to get icon from NSWorkspace".to_string());
         }
 
-        // Convert NSImage to TIFF representation
-        let tiff_data: *mut Object = msg_send![
-            icon,
-            TIFFRepresentation
-        ];
+        // Convert to TIFF representation (simplest and most reliable)
+        let tiff_data: *mut Object = msg_send![icon, TIFFRepresentation];
 
         if tiff_data.is_null() {
             return Err("Failed to convert icon to TIFF".to_string());
         }
 
-        // Get NSData bytes and length
         let bytes: *const u8 = msg_send![tiff_data, bytes];
         let length: usize = msg_send![tiff_data, length];
 
@@ -185,17 +181,16 @@ pub fn get_app_icon_nsworkspace(app_path: String) -> Result<GetAppIconResponse, 
             return Err("Failed to get icon data".to_string());
         }
 
-        // Create a slice from the raw pointer
         let slice = std::slice::from_raw_parts(bytes, length);
-
-        // Convert to base64
         use base64::prelude::*;
         let base64_string = BASE64_STANDARD.encode(slice);
+        let data_url = format!("data:image/tiff;base64,{base64_string}");
 
-        // Return as data URL (TIFF format)
+        println!("[get_app_icon_nsworkspace] Successfully loaded icon for {}, size: {} bytes", app_path, length);
+
         Ok(GetAppIconResponse {
-            icon: Some(format!("data:image/tiff;base64,{base64_string}")),
-            icon_data_url: Some(format!("data:image/tiff;base64,{base64_string}")),
+            icon: Some(data_url.clone()),
+            icon_data_url: Some(data_url),
         })
     }
 }

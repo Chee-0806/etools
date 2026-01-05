@@ -60,6 +60,8 @@ const ResultItem = memo(({
     if (result.type === 'app' && !result.icon && result.path && !loadingRef.current && isTauri()) {
       loadingRef.current = true;
 
+      console.log('[ResultItem] Loading icon for app:', result.title, 'path:', result.path);
+
       const loadIcon = async () => {
         try {
           const response = await invoke<{
@@ -69,10 +71,15 @@ const ResultItem = memo(({
             app_path: result.path,
           });
 
+          console.log('[ResultItem] Icon response:', response);
+
           if (mountedRef.current) {
             const icon = response.icon_data_url || response.icon;
             if (icon) {
+              console.log('[ResultItem] Icon loaded successfully, length:', icon.length);
               setIconUrl(icon);
+            } else {
+              console.warn('[ResultItem] No icon data in response');
             }
           }
         } catch (error) {
