@@ -10,9 +10,19 @@
  * - Fast icon loading using iconutil command
  */
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { SearchResult } from "@/types/search";
 import "@/styles/components/ResultList.css";
+
+// Type declaration for Tauri environment detection
+declare global {
+  interface Window {
+    __TAURI__?: unknown;
+  }
+}
+
+const isTauri = () => typeof window !== 'undefined' && window.__TAURI__ !== undefined;
 
 interface ResultListProps {
   results: SearchResult[];
@@ -37,8 +47,51 @@ const ResultItem = memo(({
   onMouseEnter: () => void;
   query?: string;
 }) => {
-  // Icon is now provided by backend (unified_search returns icon directly)
-  const iconUrl = result.icon || null;
+  // Local icon state for lazy loading
+  const [iconUrl, setIconUrl] = useState<string | null>(result.icon || null);
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+
+  // Load app icon on mount for app results without icons
+  useEffect(() => {
+    mountedRef.current = true;
+
+    // Only load icon for app results without existing icon
+    if (result.type === 'app' && !result.icon && result.path && !loadingRef.current && isTauri()) {
+      loadingRef.current = true;
+
+      const loadIcon = async () => {
+        try {
+          const response = await invoke<{
+            icon: string | null;
+            icon_data_url: string | null;
+          }>('get_app_icon_nsworkspace', {
+            app_path: result.path,
+          });
+
+          if (mountedRef.current) {
+            const icon = response.icon_data_url || response.icon;
+            if (icon) {
+              setIconUrl(icon);
+            }
+          }
+        } catch (error) {
+          console.error('[ResultItem] Failed to load app icon:', error);
+        } finally {
+          loadingRef.current = false;
+        }
+      };
+
+      // Small delay to avoid blocking
+      const timer = setTimeout(loadIcon, 10);
+      return () => clearTimeout(timer);
+    }
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [result.type, result.icon, result.path]);
+
   const isEmojiIcon = iconUrl && /^[\p{Emoji}\p{Symbol}\p{Other_Symbol}]/u.test(iconUrl);
 
   // Memoize highlighted title to avoid recalculating on each render
