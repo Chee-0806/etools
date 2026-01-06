@@ -281,8 +281,14 @@ jobs:
           DMG_DIR="src-tauri/target/universal/release/bundle/dmg"
           DMG_FILE=$(ls "$DMG_DIR/"*.dmg | grep -v temp | head -1)
 
+          echo "清理所有可能残留的挂载点..."
+          hdiutil detach /Volumes/etools -quiet 2>/dev/null || true
+          hdiutil info | grep "/Volumes/etools" | awk '{print $3}' | xargs -I {} hdiutil detach {} -quiet 2>/dev/null || true
+          sleep 2
+
           echo "挂载 DMG 进行最终验证..."
-          MOUNT_OUTPUT=$(hdiutil attach "$DMG_FILE" -readonly -nobrowse)
+          # 使用 -mount random 选项自动生成唯一挂载点
+          MOUNT_OUTPUT=$(hdiutil attach "$DMG_FILE" -readonly -nobrowse -mount random)
           MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep "/Volumes/" | head -1 | awk '{print $3}')
 
           echo "DMG 挂载在: $MOUNT_POINT"
@@ -297,6 +303,8 @@ jobs:
             echo "检查签名..."
             codesign -dv "$MOUNT_POINT/etools.app" | head -5
             codesign -v "$MOUNT_POINT/etools.app" || echo "签名状态: ad-hoc"
+            echo "检查执行权限..."
+            ls -la "$MOUNT_POINT/etools.app/Contents/MacOS/etools"
           else
             echo "❌ 未找到 etools.app"
             exit 1
