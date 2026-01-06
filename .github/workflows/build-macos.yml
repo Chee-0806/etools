@@ -287,9 +287,12 @@ jobs:
           sleep 2
 
           echo "挂载 DMG 进行最终验证..."
-          # 使用 -mount random 选项自动生成唯一挂载点
-          MOUNT_OUTPUT=$(hdiutil attach "$DMG_FILE" -readonly -nobrowse -mount random)
-          MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep "/Volumes/" | head -1 | awk '{print $3}')
+          # 创建临时挂载点目录
+          TEMP_MOUNT="/tmp/etools-verify-$RANDOM"
+          mkdir -p "$TEMP_MOUNT"
+
+          MOUNT_OUTPUT=$(hdiutil attach "$DMG_FILE" -readonly -nobrowse -mountpoint "$TEMP_MOUNT")
+          MOUNT_POINT="$TEMP_MOUNT"
 
           echo "DMG 挂载在: $MOUNT_POINT"
           echo "DMG 内容:"
@@ -312,6 +315,7 @@ jobs:
 
           # 卸载
           hdiutil detach "$MOUNT_POINT" -quiet
+          rm -rf "$TEMP_MOUNT"
 
           echo "✅ DMG 验证通过"
 
