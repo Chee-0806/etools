@@ -1,127 +1,198 @@
 /**
- * Regex Tester Plugin (T159, T163)
+ * Regex Tester Plugin (T159, T163) - v2 API
  * Tests regular expressions against input strings
  */
 
-import type { Plugin, PluginSearchResult } from '../../plugin-sdk/types';
+import type {
+  PluginV2,
+  PluginManifest,
+  PluginSearchResultV2,
+} from '../../plugin-sdk/v2-types';
 
-const manifest = {
+export const manifest: PluginManifest = {
   id: 'regex-tester',
   name: '正则测试',
-  version: '1.0.0',
-  description: 'Test and validate regular expressions',
+  version: '2.0.0',
+  description: 'Test and validate regular expressions (v2 API)',
   author: 'Kaka Team',
   permissions: [],
   triggers: ['regex:', 're:'],
+  icon: '🔍',
 };
 
-// Test regex against input
-function testRegex(pattern: string, input: string): { match: boolean; result: string } {
+/**
+ * Test regex against input
+ */
+function testRegex(pattern: string, flags: string, input: string): {
+  match: boolean;
+  result: string;
+  matches: string[];
+  error?: string;
+} {
   try {
-    const regex = new RegExp(pattern, 'g');
+    const regex = new RegExp(pattern, flags);
     const matches = input.match(regex);
 
     if (matches) {
       return {
         match: true,
         result: matches.join(', '),
+        matches: matches,
       };
     }
 
     return {
       match: false,
       result: 'No matches found',
+      matches: [],
     };
   } catch (e) {
     return {
       match: false,
       result: `Invalid regex: ${e instanceof Error ? e.message : String(e)}`,
+      matches: [],
+      error: e instanceof Error ? e.message : String(e),
     };
   }
 }
 
-// Extract pattern and test string from query
-function parseRegexQuery(query: string): { pattern: string; test: string } | null {
-  // Format: "regex:/pattern/ test string" or "re:/pattern/ test"
-  const regexMatch = query.match(/^(?:regex|re):\/([^/]+)\/(?:\s+(.+))?$/);
+/**
+ * Parse regex query: "regex:/pattern/flags test string" or "re:/pattern/flags test"
+ */
+function parseRegexQuery(query: string): { pattern: string; flags: string; test: string } | null {
+  // Format: "regex:/pattern/g test string" or "re:/pattern/i test"
+  const regexMatch = query.match(/^(?:regex|re):\/(.+?)\/([gimsuvy]*)\s*(.*)$/s);
   if (regexMatch) {
     return {
       pattern: regexMatch[1],
-      test: regexMatch[2] || '',
+      flags: regexMatch[2] || 'g',
+      test: regexMatch[3] || '',
     };
   }
 
-  // Try to get pattern from clipboard if no test string provided
   return null;
 }
 
-const plugin: Plugin = {
-  manifest,
-  onSearch: async (query: string): Promise<PluginSearchResult[]> => {
-    const results: PluginSearchResult[] = [];
+/**
+ * onSearch - Executes in Worker
+ * Returns PluginSearchResultV2[] with actionData (serializable, no functions)
+ */
+export async function onSearch(query: string): Promise<PluginSearchResultV2[]> {
+  const results: PluginSearchResultV2[] = [];
 
-    const parsed = parseRegexQuery(query);
-    if (parsed) {
-      const { pattern, test } = parsed;
+  const parsed = parseRegexQuery(query);
+  if (parsed) {
+    const { pattern, flags, test } = parsed;
 
-      // If no test string, try to get from clipboard
-      let testString = test;
-      if (!testString) {
-        try {
-          testString = await navigator.clipboard.readText();
-        } catch {
-          testString = '';
-        }
-      }
+    const { match, result, matches, error } = testRegex(pattern, flags, test);
 
-      const { match, result } = testRegex(pattern, testString);
-
+    if (error) {
       results.push({
-        id: 'regex-test',
-        title: match ? '✅ 匹配成功' : '❌ 未匹配',
-        description: result,
+        id: 'regex-error',
+        title: '❌ 正则表达式错误',
+        description: error,
+        icon: '❌',
+        score: 0.5,
+        actionData: {
+          type: 'none',
+        },
+      });
+    } else if (test) {
+      // Has test string - show result
+      results.push({
+        id: 'regex-test-result',
+        title: match ? `✅ 匹配成功 (${matches.length} 个)` : '❌ 未匹配',
+        description: result.substring(0, 100) + (result.length > 100 ? '...' : ''),
         icon: '🔍',
-        action: async () => {
-          await navigator.clipboard.writeText(result);
+        score: 0.95,
+        actionData: {
+          type: 'clipboard',
+          description: `Copy matches: ${result}`,
+          data: {
+            clipboard: {
+              text: result,
+              type: 'text',
+            },
+          },
+          metadata: {
+            pattern,
+            flags,
+            testString: test,
+            matchCount: matches.length,
+          },
+        },
+      });
+    } else {
+      // No test string - show help
+      results.push({
+        id: 'regex-test-help',
+        title: '正则表达式测试',
+        description: `在表达式后输入测试文本，例如: regex:/${pattern}/ 测试文本`,
+        icon: '🔍',
+        score: 0.8,
+        actionData: {
+          type: 'none',
         },
       });
     }
+  }
 
-    // Add quick test suggestions
-    if (query.toLowerCase().startsWith('regex:') || query.toLowerCase().startsWith('re:')) {
-      results.push({
+  // Add quick test suggestions when typing "regex:" or "re:"
+  const lowerQuery = query.toLowerCase();
+  if (lowerQuery === 'regex:' || lowerQuery === 're:') {
+    results.push(
+      {
         id: 'regex-email',
         title: '邮箱验证',
-        description: '验证邮箱地址格式',
+        description: 'regex:/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/ 测试文本',
         icon: '📧',
-        action: async () => {
-          await navigator.clipboard.writeText('regex:/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/');
+        score: 0.85,
+        actionData: {
+          type: 'none',
         },
-      });
-
-      results.push({
+      },
+      {
         id: 'regex-url',
         title: 'URL 验证',
-        description: '验证 URL 格式',
+        description: 'regex:/^https?:\\/\\/[^\\s/$.?#].[^\\s]*$/ 测试文本',
         icon: '🔗',
-        action: async () => {
-          await navigator.clipboard.writeText('regex:/^https?:\\/\\/[^\\s/$.?#].[^\\s]*$/');
+        score: 0.85,
+        actionData: {
+          type: 'none',
         },
-      });
-
-      results.push({
+      },
+      {
         id: 'regex-phone',
         title: '手机号验证',
-        description: '验证中国手机号',
+        description: 'regex:/^1[3-9]\\d{9}$/ 13800138000',
         icon: '📱',
-        action: async () => {
-          await navigator.clipboard.writeText('regex:/^1[3-9]\\d{9}$/');
+        score: 0.85,
+        actionData: {
+          type: 'none',
         },
-      });
-    }
+      },
+      {
+        id: 'regex-date',
+        title: '日期验证',
+        description: 'regex:/^\\d{4}-\\d{2}-\\d{2}$/ 2024-01-15',
+        icon: '📅',
+        score: 0.85,
+        actionData: {
+          type: 'none',
+        },
+      }
+    );
+  }
 
-    return results;
-  },
+  return results;
+}
+
+/**
+ * Plugin export
+ */
+const plugin: PluginV2 = {
+  manifest,
+  onSearch,
 };
 
 export default plugin;

@@ -1,5 +1,43 @@
 //! Plugin Sandbox Service (T094-T098)
-//! Provides isolated execution environment for plugins with permission checks
+//!
+//! ## Architecture Note (2025-01)
+//!
+//! This module provides the Rust-side permission management and plugin context tracking.
+//! The actual execution isolation is implemented on the frontend using Web Workers:
+//!
+//! - **Frontend (src/services/pluginSandbox.ts)**: Web Worker-based execution
+//! - **Frontend (src/workers/pluginSandboxWorker.ts)**: Worker implementation
+//! - **Backend (this module)**: Permission context and state management
+//!
+//! ### Why Web Workers instead of Rust?
+//!
+//! 1. Kaka plugins are written in TypeScript/JavaScript
+//! 2. Web Workers provide true thread isolation for JS code
+//! 3. No need for heavy JS runtimes like deno_core or v8
+//! 4. Better integration with existing plugin architecture
+//!
+//! ### Responsibilities
+//!
+//! This Rust module handles:
+//! - Plugin registration/unregistration
+//! - Permission grant/revoke operations
+//! - Plugin enable/disable state
+//! - Crash count tracking (persisted to disk)
+//! - Permission validation (check_permission)
+//!
+//! The frontend PluginSandbox handles:
+//! - Actual code execution in Workers
+//! - Timeout enforcement
+//! - Resource limits (worker pool)
+//! - Exception capture and reporting
+//!
+//! ## Migration Status
+//!
+//! ✅ Completed: Permission system (T094, T097)
+//! ✅ Completed: Crash handling (T098)
+//! ✅ Completed: Web Worker isolation (T095) - frontend
+//! ⚠️  Partial: execute_plugin() - returns mock, actual execution is in frontend
+//!
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
@@ -114,7 +152,18 @@ impl PluginSandbox {
     }
 
     /// Execute plugin code with permission checks (T094, T097)
-    /// In production, this should spawn an isolated worker thread (T095)
+    ///
+    /// **Note**: Actual plugin execution is handled by the frontend PluginSandbox
+    /// using Web Workers. This method returns a mock result for compatibility.
+    ///
+    /// The real execution flow:
+    /// 1. Frontend: `pluginLoader.searchByTrigger()` → `pluginSandbox.executePlugin()`
+    /// 2. Frontend: `executePlugin()` creates a Web Worker with timeout
+    /// 3. Worker: Executes plugin code in isolated thread with permission checks
+    /// 4. Result: Returns to main thread via postMessage
+    ///
+    /// Future: If we want to support Rust-based plugins, this method would be
+    /// the entry point for executing Rust code in a thread pool.
     pub fn execute_plugin(
         &self,
         plugin_id: &str,
@@ -137,27 +186,19 @@ impl PluginSandbox {
             });
         }
 
-        // TODO: Implement Web Worker isolation (T095)
-        // This should:
-        // 1. Spawn a new thread with isolated memory
-        // 2. Load plugin code into the isolated environment
-        // 3. Use timeout-based execution to prevent infinite loops
-        // 4. Capture panics and convert to errors
-        // 5. Limit resource usage (CPU, memory)
-        //
-        // Example structure:
-        // ```
-        // let worker = PluginWorker::new(plugin_id, function_name, args);
-        // let result = worker.execute_with_timeout(Duration::from_secs(5));
-        // ```
+        // Note: This is a compatibility stub. The actual execution happens
+        // in the frontend via Web Workers. See src/services/pluginSandbox.ts
+        // for the real implementation.
 
-        // For now, return a mock result
         Ok(PluginExecutionResult {
             success: true,
             output: serde_json::json!({
-                "message": format!("Executed {} on plugin {}", function_name, plugin_id),
-                "args": args,
-                "_note": "This is a mock result - T095 Web Worker isolation not yet implemented",
+                "message": format!(
+                    "Execution delegated to frontend Web Worker. \
+                    Plugin: {}, Function: {}, Args: {}",
+                    plugin_id, function_name, args
+                ),
+                "_note": "See src/services/pluginSandbox.ts for actual implementation",
             }),
             error: None,
         })

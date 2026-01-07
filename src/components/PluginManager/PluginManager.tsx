@@ -7,14 +7,13 @@ import React, { useState } from 'react';
 import { usePluginState, usePluginDispatch } from '../../services/pluginStateStore';
 import InstalledPluginsView from './InstalledPluginsView';
 import MarketplaceView from './MarketplaceView';
-import PluginInstaller from './PluginInstaller';
 import PluginDetailPanel from './PluginDetailPanel';
 import { SkipLinks } from '../../lib/accessibility';
 import { useI18n } from '../../hooks/useI18n';
 import { LanguageSelector } from '../ui/LanguageSelector';
 import './PluginManager.css';
 
-export type PluginManagerView = 'installed' | 'marketplace' | 'install';
+export type PluginManagerView = 'installed' | 'marketplace';
 
 interface PluginManagerProps {
   /**
@@ -28,12 +27,6 @@ interface PluginManagerProps {
    * @default true
    */
   showMarketplace?: boolean;
-
-  /**
-   * Whether to show the install tab
-   * @default true
-   */
-  showInstall?: boolean;
 }
 
 /**
@@ -41,13 +34,11 @@ interface PluginManagerProps {
  *
  * Provides a tabbed interface for:
  * - Viewing and managing installed plugins
- * - Browsing and installing plugins from marketplace
- * - Installing plugins from local files (drag-and-drop)
+ * - Browsing and installing plugins from npm marketplace
  */
 const PluginManager: React.FC<PluginManagerProps> = ({
   initialView = 'installed',
   showMarketplace = true,
-  showInstall = true,
 }) => {
   const { t } = useI18n();
   const dispatch = usePluginDispatch();
@@ -68,13 +59,6 @@ const PluginManager: React.FC<PluginManagerProps> = ({
   };
 
   /**
-   * Handle successful installation - switch to installed view
-   */
-  const handleInstallSuccess = () => {
-    handleTabChange('installed');
-  };
-
-  /**
    * Render tab navigation
    */
   const renderTabNavigation = () => {
@@ -91,19 +75,6 @@ const PluginManager: React.FC<PluginManagerProps> = ({
         >
           {t('pluginManager.tabs.installed')}
         </button>
-        {showInstall && (
-          <button
-            className={`tab-button ${currentView === 'install' ? 'active' : ''}`}
-            role="tab"
-            id="tab-install"
-            aria-selected={currentView === 'install'}
-            aria-controls="panel-install"
-            tabIndex={currentView === 'install' ? 0 : -1}
-            onClick={() => handleTabChange('install')}
-          >
-            {t('pluginManager.tabs.install')}
-          </button>
-        )}
         {showMarketplace && (
           <button
             className={`tab-button ${currentView === 'marketplace' ? 'active' : ''}`}
@@ -145,16 +116,6 @@ const PluginManager: React.FC<PluginManagerProps> = ({
             tabIndex={0}
           >
             <InstalledPluginsView />
-          </div>
-        )}
-        {currentView === 'install' && showInstall && (
-          <div
-            role="tabpanel"
-            id="panel-install"
-            aria-labelledby="tab-install"
-            tabIndex={0}
-          >
-            <PluginInstaller onSuccess={handleInstallSuccess} />
           </div>
         )}
         {currentView === 'marketplace' && showMarketplace && (

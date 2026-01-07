@@ -90,8 +90,7 @@ export function SettingsWindow() {
         {activeTab === 'plugins' && (
           <div className="settings-section settings-section--full">
             <PluginManager
-              showMarketplace={false}
-              showInstall={false}
+              showMarketplace={true}
               initialView="installed"
             />
           </div>

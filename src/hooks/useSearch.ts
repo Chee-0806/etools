@@ -308,7 +308,7 @@ export function useSearch(options: UseSearchOptions = {}) {
                     type: 'plugin' as const,
                     score,
                     action: async () => {
-                      // Trigger the plugin's search with empty query to show its options
+                      // Trigger the plugin's search with abbreviation keyword
                       const pluginResults = await pluginLoader.searchByTrigger(abbreviation.keyword);
                       if (pluginResults.length > 0 && pluginResults[0].action) {
                         await pluginResults[0].action();
@@ -326,8 +326,13 @@ export function useSearch(options: UseSearchOptions = {}) {
 
             // T115: Integrate plugin search results
             try {
-              console.log('[useSearch] Calling pluginLoader.searchByTrigger with query:', query);
+              console.log('[useSearch] ===== Starting plugin search =====');
+              console.log('[useSearch] Current query:', query);
+              console.log('[useSearch] Current search results count:', searchResults.length);
+
+              // All plugins execute in Worker with v2 API
               const pluginResults = await pluginLoader.searchByTrigger(query);
+
               console.log('[useSearch] Plugin results received:', pluginResults);
               console.log('[useSearch] Plugin results count:', pluginResults.length);
 
@@ -352,7 +357,13 @@ export function useSearch(options: UseSearchOptions = {}) {
                 });
 
               console.log('[useSearch] Plugin search results mapped:', pluginSearchResults);
+              console.log('[useSearch] Plugin search results count:', pluginSearchResults.length);
+
+              // Add plugin results to the main results
               searchResults = [...searchResults, ...pluginSearchResults];
+
+              console.log('[useSearch] Total results after adding plugins:', searchResults.length);
+              console.log('[useSearch] ===== Plugin search completed =====');
             } catch (e) {
               console.error('[useSearch] Plugin search error:', e);
             }

@@ -27,7 +27,7 @@ use cmds::plugins::{
     set_plugin_abbreviation, remove_plugin_abbreviation,
 };
 use cmds::shell::{open_url, get_default_browser};
-use cmds::marketplace::{marketplace_list, marketplace_search, marketplace_install, marketplace_check_updates, marketplace_get_plugin, marketplace_submit_rating, marketplace_report_issue};
+use cmds::marketplace::{marketplace_list, marketplace_search, marketplace_install, marketplace_uninstall, marketplace_update, marketplace_check_updates, marketplace_get_plugin, get_installed_plugins};
 use cmds::settings::{get_settings, get_setting, set_setting, update_settings, reset_settings, init_preferences, get_hotkey, set_hotkey, check_hotkey_conflicts, get_settings_file_path};
 use cmds::window::{save_window_state, restore_window_state, get_window_info, set_always_on_top, set_window_size, show_results_window, hide_results_window, update_results_window_size, write_debug_log};
 use cmds::performance::{PerformanceState, get_performance_metrics, check_performance_requirements, record_performance_event, get_average_search_time};
@@ -478,10 +478,11 @@ pub fn run() {
             marketplace_list,
             marketplace_search,
             marketplace_install,
+            marketplace_uninstall,
+            marketplace_update,
             marketplace_check_updates,
             marketplace_get_plugin,
-            marketplace_submit_rating,
-            marketplace_report_issue,
+            get_installed_plugins,
             // Settings commands
             get_settings,
             get_setting,

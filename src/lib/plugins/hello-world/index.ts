@@ -1,74 +1,86 @@
-import type { Plugin, PluginManifest, PluginSearchResult } from './plugin-sdk/types';
+/**
+ * Hello World Plugin - v2 API
+ *
+ * Demonstrates the new plugin architecture:
+ * - onSearch returns PluginSearchResultV2 with actionData (no functions)
+ * - Action is created on main thread by ActionExecutor
+ * - Can be safely executed in Web Worker
+ */
+
+import type {
+  PluginV2,
+  PluginManifest,
+  PluginSearchResultV2,
+} from '../../plugin-sdk/v2-types';
 
 export const manifest: PluginManifest = {
   id: 'hello-world',
   name: 'Hello World',
-  version: '1.0.0',
-  description: 'A simple hello world plugin that greets user',
-  author: 'Kaka Team',
-  permissions: [],
+  version: '2.0.0',
+  description: 'A simple hello world plugin that greets user (v2 API)',
+  author: 'ETools Team',
+  permissions: [],  // No permissions needed for basic popup
   triggers: ['hello:'],
+  icon: '👋',
 };
 
-export async function onSearch(query: string): Promise<PluginSearchResult[]> {
+/**
+ * onSearch - Executes in Worker
+ * Returns PluginSearchResultV2[] with actionData (serializable, no functions)
+ */
+export async function onSearch(query: string): Promise<PluginSearchResultV2[]> {
   console.log('[HelloWorldPlugin] onSearch called with query:', query);
-  const results: PluginSearchResult[] = [];
 
+  const results: PluginSearchResultV2[] = [];
+
+  // Check if query matches trigger
   if (query.toLowerCase().startsWith('hello:')) {
+    // Extract name from query (after "hello:")
     const name = query.slice(6).trim() || 'World';
     console.log('[HelloWorldPlugin] Query matches hello: trigger, name:', name);
 
+    // Create result with actionData instead of action function
     results.push({
       id: `hello-${Date.now()}`,
       title: `Hello, ${name}!`,
       description: 'Click to display greeting',
       icon: '👋',
-      action: async () => {
-        const message = `Hello, ${name}! 👋`;
-        console.log('[HelloWorldPlugin] Executing action with message:', message);
-
-        // Check if running in Tauri environment
-        const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__ !== undefined;
-
-        if (isTauri) {
-          try {
-            // Use universal plugin popup API
-            const { invoke } = await import('@tauri-apps/api/core');
-            await invoke('show_plugin_popup', {
-              pluginId: 'hello-world',
-              title: 'Hello World',
-              message: message,
-              icon: '👋',
-              style: 'success',
-              buttons: [
-                { label: '确定', value: 'ok', isPrimary: true }
-              ]
-            });
-            console.log('[HelloWorldPlugin] Popup shown successfully');
-          } catch (error) {
-            console.error('[HelloWorldPlugin] Failed to show popup:', error);
-            // Fallback to alert
-            alert(message);
+      score: 0.95,
+      actionData: {
+        type: 'popup',
+        description: `Show greeting for ${name}`,
+        data: {
+          popup: {
+            title: 'Hello World',
+            message: `Hello, ${name}! 👋`,
+            icon: '👋',
+            style: 'success',
+            buttons: [
+              { label: '确定', value: 'ok', isPrimary: true }
+            ]
           }
-        } else {
-          // Browser mode - use alert
-          alert(message);
         }
-      },
+      }
     });
 
     console.log('[HelloWorldPlugin] Created result:', results[0]);
   }
 
   console.log('[HelloWorldPlugin] Returning results:', results);
-  return Promise.resolve(results);
+  return results;
 }
 
-export async function init() {
-  console.log('[HelloWorldPlugin] Initialized');
+/**
+ * Initialize plugin
+ */
+export async function init(): Promise<void> {
+  console.log('[HelloWorldPlugin] Initialized (v2 API)');
 }
 
-const plugin: Plugin = {
+/**
+ * Plugin export
+ */
+const plugin: PluginV2 = {
   manifest,
   onSearch,
   init,

@@ -3,7 +3,7 @@
  * Browse and install plugins from marketplace
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { usePluginState, usePluginDispatch } from '../../services/pluginStateStore';
 import { marketplaceService } from '../../services/marketplaceService';
 import { pluginManagerService } from '../../services/pluginManager';
@@ -22,11 +22,36 @@ const MarketplaceView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [installingPluginId, setInstallingPluginId] = useState<string | null>(null);
+
+  // Debounce timer ref
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  /**
+   * Debounced search effect
+   */
+  useEffect(() => {
+    // Clear previous timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // Set new timer
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 500); // 500ms debounce
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [searchQuery]);
 
   /**
    * Load marketplace plugins
@@ -42,8 +67,8 @@ const MarketplaceView: React.FC = () => {
         pageSize: 20,
       };
 
-      const result = searchQuery
-        ? await marketplaceService.searchMarketplace(searchQuery, options)
+      const result = debouncedQuery
+        ? await marketplaceService.searchMarketplace(debouncedQuery, options)
         : await marketplaceService.getMarketplacePlugins(options);
 
       if (pageNum === 1) {
@@ -69,14 +94,14 @@ const MarketplaceView: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedCategory, searchQuery, dispatch]);
+  }, [selectedCategory, debouncedQuery, dispatch]);
 
   /**
    * Initial load
    */
   useEffect(() => {
     loadPlugins(1);
-  }, [selectedCategory, searchQuery]);
+  }, [selectedCategory, debouncedQuery, loadPlugins]);
 
   /**
    * Handle search
@@ -108,7 +133,9 @@ const MarketplaceView: React.FC = () => {
     setInstallingPluginId(plugin.id);
 
     try {
-      const result = await marketplaceService.installPlugin(plugin.id);
+      // Convert plugin ID to npm package name
+      const packageName = marketplaceService.idToPackageName(plugin.id);
+      const result = await marketplaceService.installPlugin(packageName);
 
       if (result.success && result.plugin) {
         dispatch({
@@ -175,6 +202,11 @@ const MarketplaceView: React.FC = () => {
             className="search-input"
             aria-label="搜索插件"
           />
+          {loading && searchQuery !== debouncedQuery && (
+            <div className="search-loading-indicator">
+              <div className="loading-spinner" />
+            </div>
+          )}
         </div>
 
         <div className="category-filters">

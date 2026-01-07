@@ -130,16 +130,31 @@ function convertRawPluginToFrontend(raw: RawPluginFromBackend): Plugin {
 export class PluginManagerService {
   /**
    * Get all installed plugins
+   * Merges plugins from both local installation and npm marketplace
    */
   async getInstalledPlugins(): Promise<Plugin[]> {
     try {
       console.log('[PluginManager] Fetching installed plugins...');
-      const rawPlugins = await invoke<RawPluginFromBackend[]>('plugin_list');
-      console.log('[PluginManager] Received raw plugins from backend:', rawPlugins);
 
-      // Convert raw backend format to frontend format
-      const plugins = rawPlugins.map(convertRawPluginToFrontend);
-      console.log('[PluginManager] Converted plugins:', plugins);
+      // Get both local and npm plugins
+      const [localPlugins, npmPlugins] = await Promise.all([
+        invoke<RawPluginFromBackend[]>('plugin_list').catch(() => []),
+        invoke<RawPluginFromBackend[]>('get_installed_plugins').catch(() => []),
+      ]);
+
+      console.log('[PluginManager] Local plugins:', localPlugins);
+      console.log('[PluginManager] NPM plugins:', npmPlugins);
+
+      // Merge both sources (npm plugins take precedence in case of conflicts)
+      const allRawPlugins = [...localPlugins, ...npmPlugins];
+      const mergedPlugins = new Map<string, RawPluginFromBackend>();
+
+      for (const plugin of allRawPlugins) {
+        mergedPlugins.set(plugin.id, plugin);
+      }
+
+      const plugins = Array.from(mergedPlugins.values()).map(convertRawPluginToFrontend);
+      console.log('[PluginManager] Total merged plugins:', plugins);
 
       return plugins;
     } catch (error) {

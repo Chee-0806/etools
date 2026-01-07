@@ -8,13 +8,25 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react()],
+
+  // Web Worker configuration (T095 - Plugin Sandbox)
+  worker: {
+    format: 'es',
+  },
+
+  // Optimizations for workers
+  optimizeDeps: {
+    exclude: [],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
 
-  // Build optimizations (T199, T203)
+  // Allow loading npm plugins from file system
+  // This is needed for dynamically loading @etools-plugin/* packages
+  // Note: server config is merged with the one below
   build: {
     // Code splitting for faster startup (T203)
     rollupOptions: {
@@ -70,6 +82,16 @@ export default defineConfig(async () => ({
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
+    },
+    // Allow loading plugins from any directory
+    fs: {
+      strict: false,
+      allow: [
+        // Allow loading from project root
+        path.resolve(__dirname),
+        // Allow loading from npm-packages directory (for development)
+        path.resolve(__dirname, './npm-packages'),
+      ],
     },
   },
 }));

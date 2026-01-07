@@ -20,6 +20,7 @@ import { PluginStoreProvider } from "@/services/pluginStateStore";
 import { useTheme } from "@/hooks/useTheme";
 import NotificationSystem from "@/components/PluginManager/NotificationSystem";
 import { pluginLoader } from "@/services/pluginLoader";
+import { initSandboxDevTools } from "@/services/sandboxDevTools";
 import "@/i18n"; // Initialize i18n
 import "@/styles/design-tokens.css";
 import "@/styles/global.css";
@@ -77,6 +78,9 @@ function App() {
     };
 
     loadBuiltInPlugins();
+
+    // Initialize sandbox developer tools in development mode
+    initSandboxDevTools();
   }, []);
 
   useEffect(() => {
