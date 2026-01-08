@@ -238,6 +238,21 @@ impl AppMonitor {
     pub fn get_app(&self, id: &str) -> Option<&ApplicationEntry> {
         self.cache.get(id)
     }
+
+    /// Get recently used apps, sorted by usage count
+    pub fn get_recently_used(&self, limit: usize) -> Vec<ApplicationEntry> {
+        let mut apps: Vec<_> = self.cache.values().collect();
+        // Sort by usage count (descending) and last_launched (descending)
+        apps.sort_by(|a, b| {
+            b.usage_count
+                .cmp(&a.usage_count)
+                .then_with(|| b.last_launched.unwrap_or(0).cmp(&a.last_launched.unwrap_or(0)))
+        });
+        apps.into_iter()
+            .take(limit)
+            .cloned()
+            .collect()
+    }
 }
 
 impl Default for AppMonitor {

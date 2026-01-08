@@ -219,3 +219,18 @@ pub fn get_app_icon_nsworkspace(app_path: String) -> Result<GetAppIconResponse, 
 pub fn get_app_icon_nsworkspace(_app_path: String) -> Result<GetAppIconResponse, String> {
     Err("Icon loading only supported on macOS".to_string())
 }
+
+/// Get recently used applications
+/// Returns apps sorted by usage count, limited to the top 10
+#[tauri::command]
+pub fn get_recently_used(
+    limit: Option<usize>,
+    state: State<AppState>,
+) -> Result<GetRecentlyUsedResponse, String> {
+    let monitor = state.app_monitor.lock().map_err(|e| e.to_string())?;
+    let limit = limit.unwrap_or(10).min(10);
+
+    let apps = monitor.get_recently_used(limit);
+
+    Ok(GetRecentlyUsedResponse { apps })
+}

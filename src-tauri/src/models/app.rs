@@ -61,3 +61,8 @@ pub struct GetAppIconResponse {
     pub icon: Option<String>,
     pub icon_data_url: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetRecentlyUsedResponse {
+    pub apps: Vec<ApplicationEntry>,
+}

@@ -6,7 +6,7 @@ mod services;
 
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
-use cmds::app::{AppState, get_installed_apps, launch_app, track_app_usage, get_app_icon, get_app_icon_nsworkspace};
+use cmds::app::{AppState, get_installed_apps, launch_app, track_app_usage, get_app_icon, get_app_icon_nsworkspace, get_recently_used};
 use cmds::search::{SearchState, unified_search, get_search_stats, search_files, search_browser_data, update_browser_cache, index_files, get_file_index_stats, start_file_indexer, stop_file_indexer};
 use cmds::clipboard::{get_clipboard_history, get_clipboard_item, paste_clipboard_item, delete_clipboard_item, clear_clipboard_history, get_clipboard_settings, set_clipboard_settings, search_clipboard};
 use cmds::plugins::{
@@ -29,7 +29,7 @@ use cmds::plugins::{
 use cmds::shell::{open_url, get_default_browser};
 use cmds::marketplace::{marketplace_list, marketplace_search, marketplace_install, marketplace_uninstall, marketplace_update, marketplace_check_updates, marketplace_get_plugin, get_installed_plugins};
 use cmds::settings::{get_settings, get_setting, set_setting, update_settings, reset_settings, init_preferences, get_hotkey, set_hotkey, check_hotkey_conflicts, get_settings_file_path};
-use cmds::window::{save_window_state, restore_window_state, get_window_info, set_always_on_top, set_window_size, show_results_window, hide_results_window, update_results_window_size, write_debug_log};
+use cmds::window::{save_window_state, restore_window_state, get_window_info, set_always_on_top, set_window_size, get_window_size, write_debug_log, center_window};
 use cmds::performance::{PerformanceState, get_performance_metrics, check_performance_requirements, record_performance_event, get_average_search_time};
 use cmds::abbreviation::{get_abbreviation_config, save_abbreviation_config, add_abbreviation, update_abbreviation, delete_abbreviation, export_abbreviation_config, import_abbreviation_config};
 
@@ -277,6 +277,21 @@ fn hide_window(window: tauri::Window) -> Result<(), String> {
 // Show window
 #[tauri::command]
 fn show_window(window: tauri::Window) -> Result<(), String> {
+    // Just center the window without changing size
+    let monitor = window.current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or("No monitor found")?;
+
+    let screen_size = monitor.size();
+    let window_size = window.outer_size().map_err(|e| e.to_string())?;
+
+    // Calculate center position
+    let x = (screen_size.width as i32 - window_size.width as i32) / 2;
+    let y = (screen_size.height as i32 - window_size.height as i32) / 2;
+
+    window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+        .map_err(|e| e.to_string())?;
+
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
     Ok(())
@@ -304,6 +319,16 @@ pub fn run() {
             app.manage(PerformanceState {
                 monitor: std::sync::Arc::new(std::sync::Mutex::new(services::performance::PerformanceMonitor::new())),
             });
+
+            // Clear old window state to ensure window centers properly
+            if let Ok(config_dir) = app.path().app_config_dir() {
+                use std::fs;
+                let window_state_path = config_dir.join("window_state.json");
+                if window_state_path.exists() {
+                    let _ = fs::remove_file(&window_state_path);
+                    println!("[Setup] Removed old window state file to ensure proper centering");
+                }
+            }
 
             // Get the main window
             let window = app.get_webview_window("main").unwrap();
@@ -364,6 +389,19 @@ pub fn run() {
                     let _ = window_clone.hide();
                     println!("[GlobalShortcut] Window hidden");
                 } else {
+                    // Just center the window without changing size
+                    if let Ok(Some(monitor)) = window_clone.current_monitor() {
+                        let screen_size = monitor.size();
+                        if let Ok(window_size) = window_clone.outer_size() {
+                            // Calculate center position
+                            let x = (screen_size.width as i32 - window_size.width as i32) / 2;
+                            let y = (screen_size.height as i32 - window_size.height as i32) / 2;
+
+                            let _ = window_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                            println!("[GlobalShortcut] Centered window at: ({}, {})", x, y);
+                        }
+                    }
+
                     let _ = window_clone.show();
                     let _ = window_clone.set_focus();
                     println!("[GlobalShortcut] Window shown and focused");
@@ -396,9 +434,8 @@ pub fn run() {
             get_window_info,
             set_always_on_top,
             set_window_size,
-            show_results_window,
-            hide_results_window,
-            update_results_window_size,
+            get_window_size,
+            center_window,
             write_debug_log,
             // App commands
             get_installed_apps,
@@ -406,6 +443,7 @@ pub fn run() {
             track_app_usage,
             get_app_icon,
             get_app_icon_nsworkspace,
+            get_recently_used,
             // Search commands
             unified_search,
             get_search_stats,

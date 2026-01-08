@@ -49,7 +49,7 @@ interface UseSearchOptions {
 }
 
 export function useSearch(options: UseSearchOptions = {}) {
-  const { debounceMs = 150, maxResults = 50 } = options;
+  const { debounceMs = 200, maxResults = 10 } = options;
 
   const [state, setState] = useState<SearchState>({
     results: [],
@@ -173,8 +173,10 @@ export function useSearch(options: UseSearchOptions = {}) {
             }));
 
             // T155: Integrate file search
-            try {
-              const fileResults = await invoke<Array<{
+            // T156: Integrate browser search
+            // Run both searches in parallel for better performance
+            const [fileSearchResults, browserSearchResults] = await Promise.allSettled([
+              invoke<Array<{
                 id: string;
                 filename: string;
                 path: string;
@@ -184,9 +186,7 @@ export function useSearch(options: UseSearchOptions = {}) {
               }>>('search_files', {
                 query,
                 limit: Math.floor(maxResults / 3),
-              });
-
-              const fileSearchResults = fileResults.map((file) =>
+              }).then(fileResults => fileResults.map((file) =>
                 searchService.createFileResult(
                   file.id,
                   file.filename,
@@ -194,16 +194,9 @@ export function useSearch(options: UseSearchOptions = {}) {
                   file.extension || undefined,
                   file.size
                 )
-              );
+              )).catch(() => []),
 
-              searchResults = [...searchResults, ...fileSearchResults];
-            } catch (e) {
-              console.error('File search error:', e);
-            }
-
-            // T156: Integrate browser search
-            try {
-              const browserResults = await invoke<Array<{
+              invoke<Array<{
                 id: string;
                 title: string;
                 url: string;
@@ -214,9 +207,7 @@ export function useSearch(options: UseSearchOptions = {}) {
               }>>('search_browser_data', {
                 query,
                 limit: Math.floor(maxResults / 3),
-              });
-
-              const browserSearchResults = browserResults.map((item) =>
+              }).then(browserResults => browserResults.map((item) =>
                 searchService.createBrowserResult(
                   item.id,
                   item.title,
@@ -225,11 +216,14 @@ export function useSearch(options: UseSearchOptions = {}) {
                   item.entry_type === 'bookmark' ? 'bookmark' : 'history',
                   item.favicon || undefined
                 )
-              );
+              )).catch(() => []),
+            ]);
 
-              searchResults = [...searchResults, ...browserSearchResults];
-            } catch (e) {
-              console.error('Browser search error:', e);
+            if (fileSearchResults.status === 'fulfilled') {
+              searchResults = [...searchResults, ...fileSearchResults.value];
+            }
+            if (browserSearchResults.status === 'fulfilled') {
+              searchResults = [...searchResults, ...browserSearchResults.value];
             }
 
             // Re-rank combined results
@@ -326,44 +320,27 @@ export function useSearch(options: UseSearchOptions = {}) {
 
             // T115: Integrate plugin search results
             try {
-              console.log('[useSearch] ===== Starting plugin search =====');
-              console.log('[useSearch] Current query:', query);
-              console.log('[useSearch] Current search results count:', searchResults.length);
-
               // All plugins execute in Worker with v2 API
               const pluginResults = await pluginLoader.searchByTrigger(query);
 
-              console.log('[useSearch] Plugin results received:', pluginResults);
-              console.log('[useSearch] Plugin results count:', pluginResults.length);
-
               const pluginSearchResults: SearchResult[] = pluginResults
                 .filter(pr => pr.action)
-                .map((pr) => {
-                  console.log('[useSearch] Mapping plugin result:', pr.id);
-                  return {
-                    id: pr.id,
-                    title: pr.title,
-                    subtitle: pr.description,
-                    icon: pr.icon,
-                    type: 'plugin' as const,
-                    score: 0.9,
-                    action: async () => {
-                      console.log('[useSearch] Executing plugin action for:', pr.id);
-                      if (pr.action) {
-                        await pr.action();
-                      }
-                    },
-                  };
-                });
-
-              console.log('[useSearch] Plugin search results mapped:', pluginSearchResults);
-              console.log('[useSearch] Plugin search results count:', pluginSearchResults.length);
+                .map((pr) => ({
+                  id: pr.id,
+                  title: pr.title,
+                  subtitle: pr.description,
+                  icon: pr.icon,
+                  type: 'plugin' as const,
+                  score: 0.9,
+                  action: async () => {
+                    if (pr.action) {
+                      await pr.action();
+                    }
+                  },
+                }));
 
               // Add plugin results to the main results
               searchResults = [...searchResults, ...pluginSearchResults];
-
-              console.log('[useSearch] Total results after adding plugins:', searchResults.length);
-              console.log('[useSearch] ===== Plugin search completed =====');
             } catch (e) {
               console.error('[useSearch] Plugin search error:', e);
             }

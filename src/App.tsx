@@ -12,7 +12,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { SearchWindow } from "@/components/SearchWindow";
-import { ResultWindow } from "@/components/ResultWindow";
 import { SettingsWindow } from "@/components/SettingsWindow";
 import { PluginPopupWindow } from "@/components/PluginPopupWindow";
 import { ComponentShowcase } from "@/components/ui";
@@ -27,7 +26,6 @@ import "@/styles/global.css";
 import "@/styles/theme-light.css";
 import "@/styles/theme-dark.css";
 import "@/styles/components/SearchWindow.css";
-import "@/styles/components/ResultWindow.css";
 import "@/styles/components/SettingsWindow.css";
 import "@/styles/components/PluginPopupWindow.css";
 import "@/styles/components/PluginManager/PluginManager.css";
@@ -69,9 +67,7 @@ function App() {
   useEffect(() => {
     const loadBuiltInPlugins = async () => {
       try {
-        console.log('[App] Loading built-in plugins...');
         await pluginLoader.loadBuiltInPlugins();
-        console.log('[App] Built-in plugins loaded successfully');
       } catch (error) {
         console.error('[App] Failed to load built-in plugins:', error);
       }
@@ -84,33 +80,17 @@ function App() {
   }, []);
 
   useEffect(() => {
-    console.log('[App] ========== App useEffect triggered ==========');
-    console.log('[App] typeof window:', typeof window);
-    console.log('[App] window.__TAURI__:', (window as any).__TAURI__);
-    console.log('[App] isTauri():', isTauri());
-
     if (isTauri()) {
-      console.log('[App] ✓ Running in Tauri environment');
-      console.log('[App] Current window label:', windowLabel);
-
       // NOTE: Global shortcut is now registered in Rust backend (lib.rs)
       // The frontend registration has been removed to avoid conflicts.
-      console.log('[App] Global shortcut is handled by Rust backend');
-    } else {
-      console.log('[App] ✗ Not running in Tauri environment');
     }
   }, [windowLabel]);
 
   // Render based on window label
-  // - 'main' window: SearchWindow (input only)
-  // - 'results' window: ResultWindow (results list)
+  // - 'main' window: SearchWindow (unified search input + results)
   // - 'settings' window: SettingsWindow (settings panel)
   // - 'plugin-popup' window: PluginPopupWindow (universal popup for plugins)
   // - Others: ComponentShowcase (dev mode)
-  if (windowLabel === 'results') {
-    return <ResultWindow />;
-  }
-
   if (windowLabel === 'settings') {
     return (
       <PluginStoreProvider>

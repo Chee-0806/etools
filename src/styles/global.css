@@ -31,9 +31,15 @@ body {
   overflow-x: hidden;
   margin: 0;
   padding: 0;
+  /* 不设置 height，让内容决定高度 */
   /* 确保透明窗口可以接收点击事件 */
   -webkit-app-region: no-drag;
   user-select: none;
+}
+
+#root {
+  width: 100%;
+  /* 不设置 height，让内容决定高度 */
 }
 
 /* ============================================

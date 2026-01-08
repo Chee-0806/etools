@@ -4,23 +4,14 @@
  */
 
 .result-list {
-  /* 最大高度限制，超过此高度时显示滚动条 */
-  max-height: 600px;
-  /* 只有在内容超过最大高度时才滚动 */
+  /* 固定最大高度，避免占用太多空间 */
+  max-height: 400px;
   overflow-y: auto;
   overflow-x: hidden;
   border-top: var(--border-width) solid rgba(var(--color-border-subtle), 0.6);
   background: transparent;
   animation: fadeIn 0.25s var(--easing-out);
   position: relative;
-  /* 根据内容动态调整高度，但不超过 max-height */
-  /* 当内容少于 max-height 时，高度 = 内容高度；超过时，高度 = max-height，显示滚动条 */
-  height: auto;
-  min-height: 0;
-  /* 使用过渡效果让高度变化更平滑 */
-  transition: max-height 0.25s var(--easing-out);
-  /* 确保内容可以自然增长 */
-  flex-shrink: 0;
   /* 确保滚动条只在结果列表内部，不影响输入框 */
   overscroll-behavior: contain;
 }
@@ -152,11 +143,12 @@
 .result-list__items {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: var(--spacing-2);
+  /* 网格布局：2列 */
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-2);
   /* 确保列表项能够正确计算高度 */
-  display: flex;
-  flex-direction: column;
-  /* 确保列表项高度被正确计算 */
   min-height: 0;
 }
 
@@ -165,8 +157,9 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
-  padding: var(--spacing-2) var(--spacing-4);
-  margin: 0 var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  /* 移除 margin，使用网格 gap */
+  margin: 0;
   height: 44px;
   cursor: pointer;
   user-select: none;

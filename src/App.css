@@ -47,9 +47,10 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 8vh;
+  padding: 0;
   background: transparent;
-  /* 确保容器高度自适应 */
+  /* 确保容器填满窗口 */
+  width: 100%;
   height: auto;
   min-height: 0;
   /* 确保内容不被裁剪 */

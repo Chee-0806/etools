@@ -151,129 +151,41 @@ pub fn set_window_size(window: Window, width: u32, height: u32) -> Result<(), St
     window.set_size(size).map_err(|e| e.to_string())
 }
 
-/// Show results window below the main window
+/// Center window on screen (with slight offset to top 1/4 for better UX)
 #[tauri::command]
-pub fn show_results_window(window: Window, results: Option<serde_json::Value>, query: Option<String>) -> Result<(), String> {
-    write_log("INFO", "Rust", "show_results_window called");
+pub fn center_window(window: Window) -> Result<(), String> {
+    let monitor = window.current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or("No monitor found")?;
 
-    let handle = window.app_handle();
+    let screen_size = monitor.size();
+    let window_size = window.outer_size().map_err(|e| e.to_string())?;
 
-    // Get the main window position and size
-    let main_pos = window.outer_position().map_err(|e| e.to_string())?;
-    let main_size = window.outer_size().map_err(|e| e.to_string())?;
+    // Calculate position: horizontally centered, vertically at top 1/4
+    let x = (screen_size.width as i32 - window_size.width as i32) / 2;
+    let y = (screen_size.height as i32 - window_size.height as i32) / 4;
 
-    write_log("INFO", "Rust", &format!("Main window position: {:?}, size: {:?}", main_pos, main_size));
-
-    // Get or create the results window
-    let results_window = handle.get_webview_window("results")
-        .ok_or("Results window not found")?;
-
-    write_log("INFO", "Rust", "Results window found");
-
-    // Check window state before showing
-    let is_visible_before = results_window.is_visible().map_err(|e| format!("Failed to check visibility: {}", e))?;
-    write_log("INFO", "Rust", &format!("Results window visibility BEFORE show: {}", is_visible_before));
-
-    // Calculate results window position (directly below main window)
-    let results_y = main_pos.y + main_size.height as i32;
-
-    // Set position below main window
-    let position = tauri::Position::Physical(tauri::PhysicalPosition {
-        x: main_pos.x,
-        y: results_y,
-    });
-    results_window.set_position(position).map_err(|e| e.to_string())?;
-
-    write_log("INFO", "Rust", &format!("Results window position set to {:?}", position));
-
-    // Show the results window (it has alwaysOnTop: true in config)
-    results_window.show().map_err(|e| e.to_string())?;
-
-    // CRITICAL: Keep focus on main window so user can continue typing
-    // This prevents the results window from stealing focus when it appears
-    let _ = window.set_focus();
-
-    // Check visibility after show
-    let is_visible_after = results_window.is_visible().map_err(|e| format!("Failed to check visibility: {}", e))?;
-    write_log("INFO", "Rust", &format!("Results window visibility AFTER show: {}", is_visible_after));
-
-    // Get window size to confirm it's set correctly
-    let results_size = results_window.outer_size().map_err(|e| e.to_string())?;
-    write_log("INFO", "Rust", &format!("Results window actual size: {:?}", results_size));
-
-    // CRITICAL: Forward results to results window via emit
-    write_log("INFO", "Rust", &format!("Results parameter: {:?}, Query parameter: {:?}",
-        results.as_ref().map(|v| if v.is_array() { v.as_array().map(|a| a.len()).unwrap_or(0) } else { 0 }),
-        query.as_ref().map(|q| q.len())
-    ));
-
-    if let (Some(results_data), Some(query_str)) = (results, query) {
-        let result_count = if results_data.is_array() { results_data.as_array().map(|v| v.len()).unwrap_or(0) } else { 0 };
-        write_log("INFO", "Rust", &format!("Forwarding {} results to results window, query: '{}'", result_count, query_str));
-
-        // NO DELAY: Results window is always ready once mounted
-        // The event listener persists across window hide/show cycles
-        // This prevents any input lag
-
-        // Emit to the results window using AppHandle
-        // In Tauri v2, we use emit_to to target a specific window
-        let payload = serde_json::json!({
-            "results": results_data,
-            "query": query_str
-        });
-        write_log("INFO", "Rust", &format!("Emitting payload: {}", payload));
-
-        // Try emit_to first
-        match handle.emit_to("results", "show-results", payload.clone()) {
-            Ok(_) => write_log("INFO", "Rust", "Event emitted successfully to 'results' window via emit_to"),
-            Err(e) => {
-                write_log("WARN", "Rust", &format!("emit_to failed: {}, trying emit_all", e));
-                // Fallback to emit_all if emit_to fails
-                match handle.emit_to(tauri::EventTarget::app(), "show-results", payload) {
-                    Ok(_) => write_log("INFO", "Rust", "Event emitted via emit_to(app())"),
-                    Err(e2) => write_log("ERROR", "Rust", &format!("emit_to(app()) also failed: {}", e2)),
-                }
-            }
-        }
-    } else {
-        write_log("WARN", "Rust", "No results provided to forward");
-    }
-
-    // Bring window to front without stealing focus
-    results_window.set_ignore_cursor_events(false).map_err(|e| e.to_string())?;
-
-    write_log("INFO", "Rust", "Results window shown and ready");
+    window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
-/// Hide results window
-#[tauri::command]
-pub fn hide_results_window(window: Window) -> Result<(), String> {
-    let handle = window.app_handle();
-
-    if let Some(results_window) = handle.get_webview_window("results") {
-        results_window.hide().map_err(|e| e.to_string())?;
-    }
-
-    Ok(())
+/// Window size structure
+#[derive(serde::Serialize)]
+pub struct WindowSize {
+    pub width: u32,
+    pub height: u32,
 }
 
-/// Update results window size based on content
+/// Get current window size
 #[tauri::command]
-pub fn update_results_window_size(window: Window, height: u32) -> Result<(), String> {
-    let handle = window.app_handle();
-
-    let results_window = handle.get_webview_window("results")
-        .ok_or("Results window not found")?;
-
-    let size = results_window.outer_size().map_err(|e| e.to_string())?;
-    let width = size.width;
-
-    let new_size = tauri::Size::Physical(tauri::PhysicalSize { width, height });
-    results_window.set_size(new_size).map_err(|e| e.to_string())?;
-
-    Ok(())
+pub fn get_window_size(window: Window) -> Result<WindowSize, String> {
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    Ok(WindowSize {
+        width: size.width,
+        height: size.height,
+    })
 }
 
 /// Window information

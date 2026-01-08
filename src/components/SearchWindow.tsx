@@ -1,17 +1,93 @@
 /**
- * SearchWindow - Main input-only window
- * This component runs in the "main" window and handles user input
- * Results are displayed in a separate "results" window
+ * SearchWindow - Unified single window for search input and results
+ * Displays both the search input and results in the same window
+ * Window height dynamically adjusts based on results
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { emit, listen } from '@tauri-apps/api/event';
+import { listen } from '@tauri-apps/api/event';
 import { useSearch } from '@/hooks/useSearch';
-import { useAnnounce } from '@/hooks/useAnnounce';
+import { ResultList } from './ResultList';
 import type { SearchResult } from '@/types/search';
 import { Kbd } from './ui/Kbd';
 import { logger, initLogger } from '@/lib/logger';
+
+// Recent App Item Component
+interface RecentAppItemProps {
+  app: {
+    id: string;
+    name: string;
+    executable_path: string;
+    icon?: string;
+  };
+  onClick: () => void;
+}
+
+function RecentAppItem({ app, onClick }: RecentAppItemProps) {
+  const [iconUrl, setIconUrl] = useState<string | null>(app.icon || null);
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    // Load icon if not available and running in Tauri
+    if (!iconUrl && !loadingRef.current && isTauri()) {
+      loadingRef.current = true;
+
+      const loadIcon = async () => {
+        try {
+          const response = await invoke<{
+            icon: string | null;
+            icon_data_url: string | null;
+          }>('get_app_icon_nsworkspace', {
+            appPath: app.executable_path,
+          });
+
+          if (mountedRef.current) {
+            const icon = response.icon_data_url || response.icon;
+            if (icon) {
+              setIconUrl(icon);
+            }
+          }
+        } catch (error) {
+          // Silently fail
+        } finally {
+          loadingRef.current = false;
+        }
+      };
+
+      loadIcon();
+    }
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [app.executable_path, iconUrl]);
+
+  const isEmojiIcon = iconUrl && /^[\p{Emoji}\p{Symbol}\p{Other_Symbol}]/u.test(iconUrl);
+
+  return (
+    <div className="default-item" onClick={onClick}>
+      {iconUrl ? (
+        isEmojiIcon ? (
+          <span className="default-item__icon">{iconUrl}</span>
+        ) : (
+          <img
+            src={iconUrl}
+            alt=""
+            className="default-item__icon-img"
+            loading="lazy"
+          />
+        )
+      ) : (
+        <span className="default-item__icon">📱</span>
+      )}
+      <span className="default-item__text">{app.name}</span>
+    </div>
+  );
+}
 
 // Type declaration for Tauri environment detection
 declare global {
@@ -28,22 +104,40 @@ export function SearchWindow() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const { results, search, isLoading } = useSearch();
-  const { announce, announceResults, announceSelection, announceLoading } = useAnnounce();
   const isUserTypingRef = useRef(false);
-  const isHidingRef = useRef(false); // Track if we're hiding windows
+  const isHidingRef = useRef(false);
+
+  // Limit results to max 10 items for fixed layout
+  const limitedResults = results.slice(0, 10);
+
+  // State for recently used apps
+  const [recentApps, setRecentApps] = useState<Array<{
+    id: string;
+    name: string;
+    executable_path: string;
+    icon?: string;
+  }>>([]);
 
   // Initialize logger on mount
   useEffect(() => {
     if (isTauri()) {
       initLogger();
       logger.info('SearchWindow', 'Component mounted');
+
+      // Load recently used apps
+      invoke('get_recently_used', { limit: 10 })
+        .then((response: { apps: Array<{ id: string; name: string; executable_path: string; icon?: string }> }) => {
+          setRecentApps(response.apps);
+        })
+        .catch((error) => {
+          console.error('Failed to load recently used apps:', error);
+        });
     }
   }, []);
 
   // Auto-focus input on mount and window show
   useEffect(() => {
     const focusInput = () => {
-      // Only focus if not already focused AND user is not typing
       if (document.activeElement !== inputRef.current && !isUserTypingRef.current) {
         inputRef.current?.focus();
       }
@@ -51,8 +145,6 @@ export function SearchWindow() {
 
     focusInput();
 
-    // 监听后端发送的窗口显示事件
-    // 遵循架构原则：后端负责窗口管理，前端监听后端事件
     if (isTauri()) {
       const unlistenPromise = listen('window-shown', () => {
         if (!isUserTypingRef.current) {
@@ -71,142 +163,48 @@ export function SearchWindow() {
 
     const timer = setTimeout(() => {
       isUserTypingRef.current = false;
-    }, 1000); // Reset flag after 1 second of no typing
+    }, 1000);
 
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Handle search with debounce
+  // Handle search with debounce (increased for smoother typing)
   useEffect(() => {
     const timer = setTimeout(() => {
       search(query);
-    }, 150);
+    }, 200); // Increased from 150ms to 200ms for better typing experience
 
     return () => clearTimeout(timer);
   }, [query, search]);
-
-  // Send results to results window when results change
-  useEffect(() => {
-    const sendResultsToWindow = async () => {
-      // Don't show results window if we're in the process of hiding
-      if (isHidingRef.current) {
-        logger.log('SearchWindow', 'Skipping show_results_window (hiding in progress)');
-        return;
-      }
-
-      logger.log('SearchWindow', `Results changed: ${results.length} results, Query: "${query}"`);
-
-      if (isTauri() && results.length > 0) {
-        logger.log('SearchWindow', 'Calling show_results_window with results data');
-        logger.log('SearchWindow', `Results data:`, results.map(r => r.title));
-        logger.log('SearchWindow', `Query: "${query}", length: ${query.length}`);
-
-        // Pass results directly to Rust command, which will forward to results window
-        try {
-          await invoke('show_results_window', {
-            results: results,
-            query: query,
-          });
-          logger.log('SearchWindow', 'show_results_window command completed successfully');
-        } catch (error) {
-          logger.error('SearchWindow', 'show_results_window command failed', error);
-        }
-
-        logger.log('SearchWindow', 'Results window should be visible now with data');
-      } else if (isTauri() && results.length === 0 && query) {
-        logger.log('SearchWindow', 'Hiding results window (no results)');
-        // Hide results window if no results
-        await invoke('hide_results_window');
-      }
-    };
-
-    sendResultsToWindow().catch((error) => logger.error('SearchWindow', 'Failed to send results', error));
-  }, [results, query]);
 
   // Reset selection when query changes
   useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
 
-  // Listen for selection changes from results window
-  useEffect(() => {
-    if (!isTauri()) return;
-
-    const unlistenPromise = listen<{ selectedIndex: number }>('selection-changed', (event) => {
-      setSelectedIndex(event.payload.selectedIndex);
-    });
-
-    return () => {
-      unlistenPromise.then(fn => fn());
-    };
-  }, []);
-
-  // Listen for hide-results event
-  useEffect(() => {
-    if (!isTauri()) return;
-
-    const unlistenPromise = listen('hide-results', async () => {
-      try {
-        await invoke('hide_results_window');
-      } catch (error) {
-        logger.error('SearchWindow', 'Failed to hide results window', error);
-      }
-    });
-
-    return () => {
-      unlistenPromise.then(fn => fn());
-    };
-  }, []);
-
-  // Listen for hide-main-window event (from results window)
-  useEffect(() => {
-    if (!isTauri()) return;
-
-    const unlistenPromise = listen('hide-main-window', async () => {
-      logger.log('SearchWindow', 'Received hide-main-window event');
-      await hideWindow();
-    });
-
-    return () => {
-      unlistenPromise.then(fn => fn());
-    };
-  }, []);
-
   // Keyboard navigation
   const handleKeyDown = async (e: React.KeyboardEvent) => {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        const nextIndex = selectedIndex < results.length - 1 ? selectedIndex + 1 : selectedIndex;
+        const nextIndex = selectedIndex < limitedResults.length - 1 ? selectedIndex + 1 : selectedIndex;
         setSelectedIndex(nextIndex);
-        // Notify results window of selection change
-        await emit('update-selection', { selectedIndex: nextIndex });
         break;
       case 'ArrowUp':
         e.preventDefault();
         const prevIndex = selectedIndex > 0 ? selectedIndex - 1 : 0;
         setSelectedIndex(prevIndex);
-        // Notify results window of selection change
-        await emit('update-selection', { selectedIndex: prevIndex });
         break;
       case 'Enter':
         e.preventDefault();
-        if (results[selectedIndex]) {
-          await handleSelect(results[selectedIndex]);
+        if (limitedResults[selectedIndex]) {
+          await handleSelect(limitedResults[selectedIndex]);
         }
         break;
       case 'Escape':
         e.preventDefault();
-        // Set hiding flag to prevent results window from reappearing
         isHidingRef.current = true;
-        // Hide both windows
-        await Promise.allSettled([
-          hideWindow(),
-          invoke('hide_results_window').catch(err => {
-            logger.error('SearchWindow', 'Failed to hide results window on Escape', err);
-          })
-        ]);
-        // Reset hiding flag after a short delay
+        await hideWindow();
         setTimeout(() => {
           isHidingRef.current = false;
         }, 100);
@@ -216,9 +214,6 @@ export function SearchWindow() {
 
   // Handle result selection
   const handleSelect = async (result: SearchResult) => {
-    logger.log('SearchWindow', `Executing action for: ${result.title}`);
-
-    // Check if action exists
     if (!result.action) {
       logger.error('SearchWindow', 'No action defined for result:', result);
       return;
@@ -226,9 +221,8 @@ export function SearchWindow() {
 
     try {
       await result.action();
-      logger.log('SearchWindow', 'Action executed successfully');
 
-      // Track usage if it's an app (only in Tauri)
+      // Track usage if it's an app
       if (result.type === 'app' && isTauri()) {
         try {
           await invoke('track_app_usage', { appId: result.id });
@@ -237,36 +231,19 @@ export function SearchWindow() {
         }
       }
 
-      // CRITICAL: Set hiding flag to prevent results window from reappearing
       isHidingRef.current = true;
 
-      // Hide both windows immediately after action
-      await Promise.allSettled([
-        hideWindow(),
-        invoke('hide_results_window').catch(err => {
-          logger.error('SearchWindow', 'Failed to hide results window', err);
-        })
-      ]);
-
-      logger.log('SearchWindow', 'Windows hidden successfully');
-
-      // Clear query for next launch (after windows are hidden)
+      // Hide window and clear state
+      await hideWindow();
       setQuery('');
 
-      // Reset hiding flag after a short delay to ensure useEffect has run
       setTimeout(() => {
         isHidingRef.current = false;
-        logger.log('SearchWindow', 'Hiding flag reset');
       }, 100);
     } catch (error) {
-      logger.error('SearchWindow', 'Failed to execute action', error);
       console.error('Failed to execute action:', error);
-      // Even if action fails, hide both windows
       isHidingRef.current = true;
-      await Promise.allSettled([
-        hideWindow().catch(() => {}),
-        invoke('hide_results_window').catch(() => {})
-      ]);
+      await hideWindow().catch(() => {});
       setQuery('');
       setTimeout(() => {
         isHidingRef.current = false;
@@ -274,18 +251,23 @@ export function SearchWindow() {
     }
   };
 
-  // Hide window - 使用后端命令而非直接操作窗口
+  // Hide window
   const hideWindow = async () => {
     if (isTauri()) {
       try {
         await invoke('hide_window');
-        logger.log('SearchWindow', 'Main window hidden via backend command');
       } catch (error) {
-        logger.error('SearchWindow', 'Failed to hide main window via backend command', error);
         console.error('Failed to hide window:', error);
       }
     }
   };
+
+  // Handle result item click
+  const handleResultClick = useCallback(async (index: number) => {
+    if (limitedResults[index]) {
+      await handleSelect(limitedResults[index]);
+    }
+  }, [limitedResults]);
 
   return (
     <div
@@ -323,10 +305,6 @@ export function SearchWindow() {
             onChange={e => {
               isUserTypingRef.current = true;
               setQuery(e.target.value);
-              // Hide results window when clearing input
-              if (!e.target.value) {
-                invoke('hide_results_window').catch(console.error);
-              }
             }}
             onFocus={() => {
               isUserTypingRef.current = false;
@@ -338,6 +316,8 @@ export function SearchWindow() {
             spellCheck={false}
             aria-label="搜索应用程序"
             aria-autocomplete="list"
+            aria-controls="search-results"
+            aria-activedescendant={selectedIndex >= 0 ? `result-${selectedIndex}` : undefined}
           />
           {isLoading && (
             <div
@@ -379,7 +359,6 @@ export function SearchWindow() {
               onClick={(e) => {
                 e.stopPropagation();
                 setQuery('');
-                invoke('hide_results_window').catch(console.error);
               }}
               type="button"
               aria-label="清除搜索"
@@ -404,28 +383,13 @@ export function SearchWindow() {
             className="settings-button"
             onClick={async () => {
               try {
-                console.log('[SettingsButton] Opening settings window');
                 await invoke('show_settings_window');
               } catch (error) {
-                console.error('[SettingsButton] Failed to open settings:', error);
+                console.error('Failed to open settings:', error);
               }
             }}
             aria-label="打开设置"
             type="button"
-            style={{
-              border: '2px solid red',
-              flexShrink: 0,
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '0'
-            }}
           >
             <svg
               width="20"
@@ -445,16 +409,82 @@ export function SearchWindow() {
           </button>
         </div>
 
-        {/* Footer with keyboard shortcuts */}
+        {/* Search Results */}
+        {query && limitedResults.length > 0 && (
+          <div className="search-results-section">
+            <ResultList
+              results={limitedResults}
+              selectedIndex={selectedIndex}
+              onSelectIndex={setSelectedIndex}
+              onExecute={handleResultClick}
+              query={query}
+              id="search-results"
+            />
+            {results.length > 10 && (
+              <div className="search-results-footer">
+                显示前 10 个结果，共 {results.length} 个
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Footer with keyboard shortcuts or default content */}
         {!query && (
-          <div className="search-footer" role="note" aria-label="键盘快捷键提示">
-            <div className="shortcuts">
-              <span className="shortcut-item">
-                Type to search
-              </span>
-              <span className="shortcut-item">
-                <Kbd>Esc</Kbd> to close
-              </span>
+          <div className="search-footer" role="note" aria-label="默认内容区域">
+            <div className="default-content">
+              <div className="default-section">
+                <h3 className="default-section__title">最近使用</h3>
+                <div className="default-section__items">
+                  {recentApps.length > 0 ? (
+                    recentApps.map((app) => (
+                      <RecentAppItem
+                        key={app.id}
+                        app={app}
+                        onClick={() => handleSelect({
+                          id: app.id,
+                          title: app.name,
+                          type: 'app',
+                          action: async () => {
+                            await invoke('launch_app', { path: app.executable_path });
+                            await invoke('track_app_usage', { appId: app.id });
+                          },
+                        } as any)}
+                      />
+                    ))
+                  ) : (
+                    <div className="default-item">
+                      <span className="default-item__icon">💡</span>
+                      <span className="default-item__text">暂无最近使用</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="default-section">
+                <h3 className="default-section__title">已固定</h3>
+                <div className="default-section__items">
+                  <div className="default-item">
+                    <span className="default-item__icon">💡</span>
+                    <span className="default-item__text">暂无固定应用</span>
+                  </div>
+                </div>
+              </div>
+              <div className="default-section">
+                <h3 className="default-section__title">推荐插件</h3>
+                <div className="default-section__items">
+                  <div className="default-item">
+                    <span className="default-item__icon">🔢</span>
+                    <span className="default-item__text">计算器 - 输入数学表达式</span>
+                  </div>
+                  <div className="default-item">
+                    <span className="default-item__icon">🎨</span>
+                    <span className="default-item__text">颜色转换 - HEX/RGB/HSL</span>
+                  </div>
+                  <div className="default-item">
+                    <span className="default-item__icon">🔍</span>
+                    <span className="default-item__text">网页搜索 - 快速搜索</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
