@@ -11,7 +11,9 @@ use cmds::app::{AppState, get_installed_apps, launch_app, track_app_usage, get_a
 use cmds::search::{SearchState, unified_search, get_search_stats, search_files, search_browser_data, update_browser_cache, index_files, get_file_index_stats, start_file_indexer, stop_file_indexer};
 use cmds::clipboard::{get_clipboard_history, get_clipboard_item, paste_clipboard_item, delete_clipboard_item, clear_clipboard_history, get_clipboard_settings, set_clipboard_settings, search_clipboard};
 use cmds::plugins::{
-    plugin_list, install_plugin, uninstall_plugin, enable_plugin, disable_plugin,
+    // ✅ 安全加固：移除 plugin_list，只允许从市场安装插件
+    // plugin_list,  // 已禁用 - 不再允许从本地 plugins/ 目录加载插件
+    install_plugin, uninstall_plugin, enable_plugin, disable_plugin,
     get_plugin_manifest, reload_plugin, grant_plugin_permission, revoke_plugin_permission,
     get_plugin_permissions, set_plugin_setting, get_plugin_setting, validate_plugin_manifest,
     check_plugin_updates, download_plugin, rate_plugin,
@@ -28,14 +30,24 @@ use cmds::plugins::{
     set_plugin_abbreviation, remove_plugin_abbreviation,
 };
 use cmds::shell::{open_url, get_default_browser};
+use cmds::files::{read_file, write_file};
 use cmds::marketplace::{marketplace_list, marketplace_search, marketplace_install, marketplace_uninstall, marketplace_update, marketplace_check_updates, marketplace_get_plugin, get_installed_plugins};
-use cmds::settings::{get_settings, get_setting, set_setting, update_settings, reset_settings, init_preferences, get_hotkey, set_hotkey, check_hotkey_conflicts, get_settings_file_path};
+use cmds::settings::{get_settings, get_setting, set_setting, update_settings, reset_settings, init_preferences, get_hotkey, set_hotkey, unregister_all_hotkeys, reregister_hotkey, check_hotkey_conflicts, get_settings_file_path};
 use cmds::window::{get_screen_info, resize_window_smart};
 use cmds::performance::{PerformanceState, get_performance_metrics, check_performance_requirements, record_performance_event, get_average_search_time};
 use cmds::abbreviation::{get_abbreviation_config, save_abbreviation_config, add_abbreviation, update_abbreviation, delete_abbreviation, export_abbreviation_config, import_abbreviation_config};
 
+/// Get the default global hotkey for the current platform.
+/// Simplifies duplicate default hotkey logic throughout the codebase.
+fn default_hotkey() -> String {
+    #[cfg(target_os = "macos")]
+    return "Cmd+Shift+K".to_string();
+    #[cfg(not(target_os = "macos"))]
+    return "Ctrl+Shift+K".to_string();
+}
+
 /// Parse hotkey string (e.g., "Cmd+Space", "Ctrl+Shift+A") into a Shortcut
-fn parse_hotkey(hotkey: &str) -> Result<Shortcut, String> {
+pub fn parse_hotkey(hotkey: &str) -> Result<Shortcut, String> {
     let parts: Vec<&str> = hotkey.split('+').collect();
     if parts.is_empty() {
         return Err("Invalid hotkey format".to_string());
@@ -146,6 +158,33 @@ fn parse_key_code(key: &str) -> Result<Code, String> {
         "DOWN" | "ARROWDOWN" => Ok(Code::ArrowDown),
         "LEFT" | "ARROWLEFT" => Ok(Code::ArrowLeft),
         "RIGHT" | "ARROWRIGHT" => Ok(Code::ArrowRight),
+        // Support for underscore and other shifted symbols
+        "_" | "+" | "{" | "}" | "|" | ":" | "\"" | "<" | ">" | "?" | "~" | "!" | "@" | "#" | "$" | "%" | "^" | "&" | "*" | "(" | ")" => {
+            // Map shifted symbols to their base keys
+            match key {
+                "_" | "+" => Ok(Code::Equal),
+                "{" | "[" => Ok(Code::BracketLeft),
+                "}" | "]" => Ok(Code::BracketRight),
+                "|" | "\\" => Ok(Code::Backslash),
+                ":" | ";" => Ok(Code::Semicolon),
+                "\"" | "'" => Ok(Code::Quote),
+                "<" | "," => Ok(Code::Comma),
+                ">" | "." => Ok(Code::Period),
+                "?" | "/" => Ok(Code::Slash),
+                "~" | "`" => Ok(Code::Backquote),
+                "!" | "1" => Ok(Code::Digit1),
+                "@" | "2" => Ok(Code::Digit2),
+                "#" | "3" => Ok(Code::Digit3),
+                "$" | "4" => Ok(Code::Digit4),
+                "%" | "5" => Ok(Code::Digit5),
+                "^" | "6" => Ok(Code::Digit6),
+                "&" | "7" => Ok(Code::Digit7),
+                "*" | "8" => Ok(Code::Digit8),
+                "(" | "9" => Ok(Code::Digit9),
+                ")" | "0" => Ok(Code::Digit0),
+                _ => Err(format!("Unsupported key: {}", key)),
+            }
+        }
         _ => Err(format!("Unsupported key: {}", key)),
     }
 }
@@ -275,30 +314,18 @@ pub fn run() {
                 .map_err(|e| format!("Failed to get config dir: {}", e))?;
             let settings_file = settings_path.join("settings.json");
 
+            // Load hotkey from settings or use default (simplified with helper function)
             let hotkey_str = if settings_file.exists() {
-                // Read settings file to get hotkey
                 use std::fs;
-                if let Ok(content) = fs::read_to_string(&settings_file) {
-                    if let Ok(settings) = serde_json::from_str::<crate::models::preferences::AppSettings>(&content) {
-                        settings.global_hotkey
-                    } else {
-                        // Default based on platform
-                        #[cfg(target_os = "macos")]
-                        { "Cmd+Shift+K".to_string() }
-                        #[cfg(not(target_os = "macos"))]
-                        { "Ctrl+Shift+K".to_string() }
-                    }
-                } else {
-                    #[cfg(target_os = "macos")]
-                    { "Cmd+Shift+K".to_string() }
-                    #[cfg(not(target_os = "macos"))]
-                    { "Ctrl+Shift+K".to_string() }
-                }
+                fs::read_to_string(&settings_file)
+                    .ok()
+                    .and_then(|content| {
+                        serde_json::from_str::<crate::models::preferences::AppSettings>(&content).ok()
+                    })
+                    .map(|settings| settings.global_hotkey)
+                    .unwrap_or_else(|| default_hotkey())
             } else {
-                #[cfg(target_os = "macos")]
-                { "Cmd+Shift+K".to_string() }
-                #[cfg(not(target_os = "macos"))]
-                { "Ctrl+Shift+K".to_string() }
+                default_hotkey()
             };
 
             println!("[GlobalShortcut] Registering hotkey: {}", hotkey_str);
@@ -495,7 +522,8 @@ pub fn run() {
             set_clipboard_settings,
             search_clipboard,
             // Plugin commands
-            plugin_list,
+            // ✅ 安全加固：移除 plugin_list，只允许从市场安装插件
+            // plugin_list,  // 已禁用
             install_plugin,
             uninstall_plugin,
             enable_plugin,
@@ -543,6 +571,9 @@ pub fn run() {
             // Shell commands
             open_url,
             get_default_browser,
+            // File system commands
+            read_file,
+            write_file,
             // Marketplace commands
             marketplace_list,
             marketplace_search,
@@ -561,6 +592,8 @@ pub fn run() {
             init_preferences,
             get_hotkey,
             set_hotkey,
+            unregister_all_hotkeys,
+            reregister_hotkey,
             check_hotkey_conflicts,
             get_settings_file_path,
             get_abbreviation_config,

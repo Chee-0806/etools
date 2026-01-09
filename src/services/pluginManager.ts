@@ -129,34 +129,18 @@ function convertRawPluginToFrontend(raw: RawPluginFromBackend): Plugin {
  */
 export class PluginManagerService {
   /**
-   * Get all installed plugins
-   * Merges plugins from both local installation and npm marketplace
+   * Get all installed plugins from marketplace
+   * ✅ Rubick 方案：直接调用后端，后端读取 package.json（< 1ms）
    */
   async getInstalledPlugins(): Promise<Plugin[]> {
     try {
-      console.log('[PluginManager] Fetching installed plugins...');
+      // 直接调用后端，后端会读取 plugins/package.json
+      const rawPlugins = await invoke<RawPluginFromBackend[]>('get_installed_plugins');
 
-      // Get both local and npm plugins
-      const [localPlugins, npmPlugins] = await Promise.all([
-        invoke<RawPluginFromBackend[]>('plugin_list').catch(() => []),
-        invoke<RawPluginFromBackend[]>('get_installed_plugins').catch(() => []),
-      ]);
+      console.log('[PluginManager] Retrieved', rawPlugins.length, 'plugins from package.json');
 
-      console.log('[PluginManager] Local plugins:', localPlugins);
-      console.log('[PluginManager] NPM plugins:', npmPlugins);
-
-      // Merge both sources (npm plugins take precedence in case of conflicts)
-      const allRawPlugins = [...localPlugins, ...npmPlugins];
-      const mergedPlugins = new Map<string, RawPluginFromBackend>();
-
-      for (const plugin of allRawPlugins) {
-        mergedPlugins.set(plugin.id, plugin);
-      }
-
-      const plugins = Array.from(mergedPlugins.values()).map(convertRawPluginToFrontend);
-      console.log('[PluginManager] Total merged plugins:', plugins);
-
-      return plugins;
+      // 转换后端数据到前端格式
+      return rawPlugins.map(convertRawPluginToFrontend);
     } catch (error) {
       console.error('[PluginManager] Failed to get installed plugins:', error);
       throw new Error(
@@ -171,6 +155,10 @@ export class PluginManagerService {
   async enablePlugin(pluginId: string): Promise<void> {
     try {
       await invoke('plugin_enable', { pluginId });
+
+      // Update sandbox state
+      const { getPluginSandbox } = await import('./pluginSandbox');
+      getPluginSandbox().setPluginEnabled(pluginId, true);
     } catch (error) {
       console.error('Failed to enable plugin:', error);
       throw new Error(
@@ -185,6 +173,10 @@ export class PluginManagerService {
   async disablePlugin(pluginId: string): Promise<void> {
     try {
       await invoke('plugin_disable', { pluginId });
+
+      // Update sandbox state
+      const { getPluginSandbox } = await import('./pluginSandbox');
+      getPluginSandbox().setPluginEnabled(pluginId, false);
     } catch (error) {
       console.error('Failed to disable plugin:', error);
       throw new Error(

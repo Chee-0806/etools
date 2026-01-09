@@ -207,6 +207,7 @@ const PluginListItem: React.FC<PluginListItemProps> = ({
           <button
             className="plugin-uninstall-btn"
             onClick={(e) => {
+              console.log('[PluginListItem] Uninstall button clicked for', plugin.manifest.id);
               e.stopPropagation();
               onUninstall();
             }}

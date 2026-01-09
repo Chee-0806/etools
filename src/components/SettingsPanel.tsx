@@ -36,7 +36,7 @@ interface AppSettings {
   max_results: number;
   file_index_paths?: string[];
   excluded_directories?: string[];
-  marketplace_url?: string;
+  // ✅ 安全加固：移除 marketplace_url，使用硬编码的官方 npm registry
 }
 
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
@@ -54,7 +54,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     max_results: 50,
     file_index_paths: [],
     excluded_directories: ['node_modules', '.git', 'target', 'dist', 'build', '.vscode', '.idea'],
-    marketplace_url: 'https://plugins.example.com/api',
+    // ✅ 安全加固：移除 marketplace_url
   });
   const [editingHotkey, setEditingHotkey] = useState(false);
   const [currentHotkey, setCurrentHotkey] = useState('Option+Space');
@@ -433,23 +433,14 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               <div className="settings-section">
                 <h3>插件设置</h3>
 
-                <div className="settings-item">
-                  <label>插件市场 URL (T179)</label>
-                  <Input
-                    value={settings.marketplace_url || ''}
-                    onChange={(e) => updateSetting('marketplace_url', e.target.value)}
-                    placeholder="https://plugins.example.com/api"
-                  />
-                  <p className="settings-hint">
-                    插件市场的 API 地址，用于下载和更新插件
-                  </p>
-                </div>
+                {/* ✅ 安全加固：移除自定义 marketplace URL，使用硬编码的官方 npm registry */}
 
                 <div className="settings-item">
                   <Button
                     variant="secondary"
                     onClick={async () => {
-                      const url = settings.marketplace_url || 'https://plugins.example.com';
+                      // ✅ 安全加固：使用硬编码的官方 npm registry URL
+                      const url = 'https://www.npmjs.com/search?q=keywords:etools-plugin';
                       try {
                         await invoke('open_url', { url });
                       } catch (error) {
@@ -463,6 +454,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                   >
                     访问插件市场
                   </Button>
+                  <p className="settings-hint">
+                    在浏览器中打开官方 npm registry，浏览和搜索 etools 插件
+                  </p>
                 </div>
 
                 <div className="settings-divider"></div>

@@ -1,14 +1,24 @@
 /**
  * MarketplaceView Component
  * Browse and install plugins from marketplace
+ * ✅ 使用静态 JSON 数据源（类似 Rubick）
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePluginState, usePluginDispatch } from '../../services/pluginStateStore';
-import { marketplaceService } from '../../services/marketplaceService';
+import { marketplaceDataService } from '../../services/marketplaceData';
 import { pluginManagerService } from '../../services/pluginManager';
-import type { MarketplacePlugin, MarketplaceQueryOptions, PluginCategory } from '../../types/plugin';
+import type { MarketplacePlugin, PluginCategory } from '../../types/plugin';
 import './MarketplaceView.css';
+
+/**
+ * 分类信息接口
+ */
+interface CategoryInfo {
+  key: string;
+  name: string;
+  icon: string;
+}
 
 /**
  * MarketplaceView - Plugin marketplace interface
@@ -18,70 +28,43 @@ const MarketplaceView: React.FC = () => {
   const state = usePluginState();
 
   // Local state
-  const [plugins, setPlugins] = useState<MarketplacePlugin[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [allPlugins, setAllPlugins] = useState<MarketplacePlugin[]>([]);
+  const [displayedPlugins, setDisplayedPlugins] = useState<MarketplacePlugin[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [installingPluginId, setInstallingPluginId] = useState<string | null>(null);
+  const [installingPluginName, setInstallingPluginName] = useState<string | null>(null);
+  const [installedPluginNames, setInstalledPluginNames] = useState<Set<string>>(new Set());
 
-  // Debounce timer ref
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  /**
-   * Debounced search effect
-   */
-  useEffect(() => {
-    // Clear previous timer
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-
-    // Set new timer
-    debounceTimerRef.current = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-    }, 500); // 500ms debounce
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, [searchQuery]);
+  // 分类列表
+  const categories: CategoryInfo[] = useMemo(() => [
+    { key: 'all', name: '全部', icon: '📦' },
+    { key: 'productivity', name: '生产力工具', icon: '⚡' },
+    { key: 'developer', name: '开发工具', icon: '💻' },
+    { key: 'utilities', name: '实用工具', icon: '🔧' },
+    { key: 'search', name: '搜索增强', icon: '🔍' },
+    { key: 'media', name: '媒体处理', icon: '🎬' },
+    { key: 'integration', name: '第三方集成', icon: '🔗' },
+  ], []);
 
   /**
-   * Load marketplace plugins
+   * 加载所有插件
    */
-  const loadPlugins = useCallback(async (pageNum = 1) => {
+  const loadMarketplacePlugins = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const options: MarketplaceQueryOptions = {
-        category: (selectedCategory === 'all' ? undefined : selectedCategory as PluginCategory),
-        page: pageNum,
-        pageSize: 20,
-      };
+      console.log('[Marketplace] Loading plugins from static JSON...');
+      const plugins = await marketplaceDataService.getAllPlugins();
+      console.log(`[Marketplace] Loaded ${plugins.length} plugins`);
 
-      const result = debouncedQuery
-        ? await marketplaceService.searchMarketplace(debouncedQuery, options)
-        : await marketplaceService.getMarketplacePlugins(options);
-
-      if (pageNum === 1) {
-        setPlugins(result.plugins);
-      } else {
-        setPlugins((prev) => [...prev, ...result.plugins]);
-      }
-
-      setHasMore(result.hasMore);
-      setTotal(result.total);
-      setPage(pageNum);
+      setAllPlugins(plugins);
+      setDisplayedPlugins(plugins);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[Marketplace] Failed to load plugins:', err);
       setError(errorMessage);
       dispatch({
         type: 'SHOW_NOTIFICATION',
@@ -94,100 +77,122 @@ const MarketplaceView: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedCategory, debouncedQuery, dispatch]);
+  }, [dispatch]);
 
   /**
-   * Initial load
+   * 加载已安装插件列表
+   */
+  const loadInstalledPlugins = useCallback(async () => {
+    try {
+      const installedPlugins = await pluginManagerService.getInstalledPlugins();
+      const installedNames = new Set(installedPlugins.map((p) => p.name));
+      setInstalledPluginNames(installedNames);
+      console.log(`[Marketplace] Found ${installedNames.size} installed plugins`);
+    } catch (err) {
+      console.error('[Marketplace] Failed to load installed plugins:', err);
+    }
+  }, []);
+
+  /**
+   * 初始加载
    */
   useEffect(() => {
-    loadPlugins(1);
-  }, [selectedCategory, debouncedQuery, loadPlugins]);
+    loadMarketplacePlugins();
+    loadInstalledPlugins();
+  }, [loadMarketplacePlugins, loadInstalledPlugins]);
 
   /**
-   * Handle search
+   * 过滤插件（分类 + 搜索）
+   */
+  useEffect(() => {
+    let filtered = allPlugins;
+
+    // 分类过滤
+    if (selectedCategory !== 'all') {
+      filtered = filtered.filter((p) => p.category === selectedCategory);
+    }
+
+    // 搜索过滤（客户端）
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.pluginName.toLowerCase().includes(query) ||
+        p.description.toLowerCase().includes(query) ||
+        p.keywords.some((kw) => kw.toLowerCase().includes(query)) ||
+        p.author.toLowerCase().includes(query)
+      );
+    }
+
+    setDisplayedPlugins(filtered);
+  }, [allPlugins, selectedCategory, searchQuery]);
+
+  /**
+   * 处理搜索
    */
   const handleSearch = (value: string) => {
     setSearchQuery(value);
   };
 
   /**
-   * Handle category change
+   * 处理分类变化
    */
   const handleCategoryChange = (category: string) => {
     setSelectedCategory(category);
+    setSearchQuery(''); // 切换分类时清空搜索
   };
 
   /**
-   * Load more plugins
-   */
-  const handleLoadMore = () => {
-    if (hasMore && !loading) {
-      loadPlugins(page + 1);
-    }
-  };
-
-  /**
-   * Install plugin
+   * 安装插件
    */
   const handleInstallPlugin = async (plugin: MarketplacePlugin) => {
-    setInstallingPluginId(plugin.id);
+    setInstallingPluginName(plugin.name);
 
     try {
-      // Convert plugin ID to npm package name
-      const packageName = marketplaceService.idToPackageName(plugin.id);
-      const result = await marketplaceService.installPlugin(packageName);
+      console.log(`[Marketplace] Installing plugin: ${plugin.name}`);
 
-      if (result.success && result.plugin) {
-        dispatch({
-          type: 'SHOW_NOTIFICATION',
-          payload: {
-            type: 'success',
-            title: '安装成功',
-            message: `${plugin.name} 已成功安装`,
-          },
-        });
+      await marketplaceDataService.installPlugin(plugin);
 
-        // Reload installed plugins
-        const installedPlugins = await pluginManagerService.getInstalledPlugins();
-        dispatch({
-          type: 'LOAD_PLUGINS_SUCCESS',
-          payload: installedPlugins,
-        });
+      dispatch({
+        type: 'SHOW_NOTIFICATION',
+        payload: {
+          type: 'success',
+          title: '安装成功',
+          message: `${plugin.pluginName} 已成功安装`,
+        },
+      });
 
-        // Update marketplace plugin installed status
-        setPlugins((prev) =>
-          prev.map((p) =>
-            p.id === plugin.id
-              ? { ...p, installed: true, installedVersion: plugin.version }
-              : p
-          )
-        );
-      } else {
-        dispatch({
-          type: 'SHOW_NOTIFICATION',
-          payload: {
-            type: 'error',
-            title: '安装失败',
-            message: result.error || '未知错误',
-          },
-        });
-      }
+      // 重新加载已安装插件列表
+      await loadInstalledPlugins();
+
+      // 刷新市场插件列表（更新安装状态）
+      setAllPlugins((prev) =>
+        prev.map((p) =>
+          p.name === plugin.name ? { ...p, installed: true } : p
+        )
+      );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[Marketplace] Failed to install plugin:', err);
       dispatch({
         type: 'SHOW_NOTIFICATION',
         payload: {
           type: 'error',
           title: '安装失败',
-          message: errorMessage,
+          message: `${plugin.pluginName} 安装失败: ${errorMessage}`,
         },
       });
     } finally {
-      setInstallingPluginId(null);
+      setInstallingPluginName(null);
     }
   };
 
-  const categories = marketplaceService.getCategories();
+  /**
+   * 检查插件是否已安装
+   */
+  const isPluginInstalled = (pluginName: string): boolean => {
+    return installedPluginNames.has(pluginName);
+  };
 
   return (
     <div className="marketplace-view">
@@ -202,37 +207,36 @@ const MarketplaceView: React.FC = () => {
             className="search-input"
             aria-label="搜索插件"
           />
-          {loading && searchQuery !== debouncedQuery && (
-            <div className="search-loading-indicator">
-              <div className="loading-spinner" />
-            </div>
-          )}
         </div>
 
         <div className="category-filters">
           {categories.map((category) => (
             <button
-              key={category}
+              key={category.key}
               className={`category-filter ${
-                selectedCategory === category ? 'active' : ''
+                selectedCategory === category.key ? 'active' : ''
               }`}
-              onClick={() => handleCategoryChange(category)}
+              onClick={() => handleCategoryChange(category.key)}
             >
-              {marketplaceService.getCategoryDisplayName(category)}
+              <span className="category-icon">{category.icon}</span>
+              <span className="category-name">{category.name}</span>
             </button>
           ))}
         </div>
       </div>
 
       {/* Results Count */}
-      {!loading && plugins.length > 0 && (
+      {!loading && displayedPlugins.length > 0 && (
         <div className="results-count">
-          {searchQuery ? `搜索结果: ${total} 个` : `共 ${total} 个插件`}
+          {searchQuery
+            ? `搜索结果: ${displayedPlugins.length} 个`
+            : `共 ${displayedPlugins.length} 个插件`
+          }
         </div>
       )}
 
       {/* Loading State */}
-      {loading && plugins.length === 0 && (
+      {loading && (
         <div className="loading-state">
           <div className="loading-spinner" />
           <p>正在加载插件...</p>
@@ -240,55 +244,54 @@ const MarketplaceView: React.FC = () => {
       )}
 
       {/* Error State */}
-      {error && (
+      {error && !loading && (
         <div className="error-state">
-          <p>加载失败: {error}</p>
+          <p>❌ 加载失败: {error}</p>
           <button
             className="btn-secondary"
-            onClick={() => loadPlugins(1)}
+            onClick={() => {
+              setError(null);
+              loadMarketplacePlugins();
+            }}
           >
             重试
           </button>
+          <p className="error-hint">
+            💡 提示：确保本地服务器正在运行（<code>cd marketplace-data && python -m http.server 8080</code>）
+          </p>
         </div>
       )}
 
       {/* Empty State */}
-      {!loading && !error && plugins.length === 0 && (
+      {!loading && !error && displayedPlugins.length === 0 && (
         <div className="empty-state">
-          <p>{searchQuery ? '未找到匹配的插件' : '暂无插件'}</p>
+          <p>{searchQuery ? '😕 未找到匹配的插件' : '📭 暂无插件'}</p>
+          {searchQuery && (
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                setSearchQuery('');
+                setSelectedCategory('all');
+              }}
+            >
+              清除筛选
+            </button>
+          )}
         </div>
       )}
 
       {/* Plugin Grid */}
-      {plugins.length > 0 && (
+      {displayedPlugins.length > 0 && (
         <div className="marketplace-plugins">
-          {plugins.map((plugin) => (
-            <MemoizedPluginCard
-              key={plugin.id}
+          {displayedPlugins.map((plugin) => (
+            <PluginCard
+              key={plugin.name}
               plugin={plugin}
-              installing={installingPluginId === plugin.id}
+              installing={installingPluginName === plugin.name}
+              installed={isPluginInstalled(plugin.name)}
               onInstall={handleInstallPlugin}
             />
           ))}
-        </div>
-      )}
-
-      {/* Load More Button */}
-      {hasMore && !loading && (
-        <div className="load-more-container">
-          <button
-            className="btn-secondary"
-            onClick={handleLoadMore}
-          >
-            加载更多
-          </button>
-        </div>
-      )}
-
-      {/* Loading More Indicator */}
-      {loading && plugins.length > 0 && (
-        <div className="loading-more">
-          <div className="loading-spinner small" />
         </div>
       )}
     </div>
@@ -301,54 +304,60 @@ const MarketplaceView: React.FC = () => {
 interface PluginCardProps {
   plugin: MarketplacePlugin;
   installing: boolean;
+  installed: boolean;
   onInstall: (plugin: MarketplacePlugin) => void;
 }
 
-const PluginCard: React.FC<PluginCardProps> = ({ plugin, installing, onInstall }) => {
-  const stars = marketplaceService.getRatingStars(plugin.rating);
+const PluginCard: React.FC<PluginCardProps> = ({ plugin, installing, installed, onInstall }) => {
+  const categoryInfo = useMemo(() => {
+    return marketplaceDataService.getCategoryInfo(plugin.category);
+  }, [plugin.category]);
+
+  // 防御性检查，确保 categoryInfo 存在
+  if (!categoryInfo) {
+    console.error('[PluginCard] Category info not found for:', plugin.category);
+    return null;
+  }
 
   return (
-    <div className={`plugin-card ${plugin.installed ? 'installed' : ''}`}>
+    <div className={`plugin-card ${installed ? 'installed' : ''}`}>
       {/* Plugin Header */}
       <div className="plugin-header">
         <div className="plugin-icon">
-          {plugin.icon ? (
-            <img src={plugin.icon} alt={plugin.name} />
+          {plugin.logo ? (
+            <img src={plugin.logo} alt={plugin.pluginName} />
           ) : (
             <div className="plugin-icon-placeholder">
-              {plugin.name.charAt(0).toUpperCase()}
+              {plugin.pluginName.charAt(0).toUpperCase()}
             </div>
           )}
         </div>
         <div className="plugin-info">
-          <h3 className="plugin-name">{plugin.name}</h3>
+          <h3 className="plugin-name">{plugin.pluginName}</h3>
           <p className="plugin-author">by {plugin.author}</p>
-        </div>
-      </div>
-
-      {/* Plugin Stats */}
-      <div className="plugin-stats">
-        <div className="plugin-rating">
-          {stars.map((filled, i) => (
-            <span
-              key={i}
-              className={`star ${filled ? 'filled' : 'empty'}`}
-            >
-              ★
-            </span>
-          ))}
-          <span className="rating-count">({plugin.ratingCount})</span>
-        </div>
-        <div className="plugin-downloads">
-          ↓ {marketplaceService.formatDownloadCount(plugin.downloadCount)}
+          <div className="plugin-category-badge">
+            <span className="category-icon">{categoryInfo.categoryIcon}</span>
+            <span className="category-name">{categoryInfo.categoryName}</span>
+          </div>
         </div>
       </div>
 
       {/* Plugin Description */}
       <p className="plugin-description">{plugin.description}</p>
 
+      {/* Plugin Features */}
+      {plugin.features && plugin.features.length > 0 && (
+        <div className="plugin-features">
+          {plugin.features.slice(0, 3).map((feature, index) => (
+            <span key={index} className="feature-item">
+              ✓ {feature}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Plugin Tags */}
-      {plugin.tags.length > 0 && (
+      {plugin.tags && plugin.tags.length > 0 && (
         <div className="plugin-tags">
           {plugin.tags.slice(0, 3).map((tag) => (
             <span key={tag} className="tag">
@@ -361,8 +370,8 @@ const PluginCard: React.FC<PluginCardProps> = ({ plugin, installing, onInstall }
       {/* Plugin Footer */}
       <div className="plugin-footer">
         <div className="plugin-version">v{plugin.version}</div>
-        {plugin.installed ? (
-          <div className="installed-badge">已安装</div>
+        {installed ? (
+          <div className="installed-badge">✓ 已安装</div>
         ) : (
           <button
             className="btn-primary install-btn"
@@ -387,13 +396,5 @@ const PluginCard: React.FC<PluginCardProps> = ({ plugin, installing, onInstall }
     </div>
   );
 };
-
-const MemoizedPluginCard = React.memo(PluginCard, (prevProps, nextProps) => {
-  return (
-    prevProps.plugin.id === nextProps.plugin.id &&
-    prevProps.plugin.installed === nextProps.plugin.installed &&
-    prevProps.installing === nextProps.installing
-  );
-});
 
 export default MarketplaceView;

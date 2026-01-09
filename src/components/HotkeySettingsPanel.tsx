@@ -74,6 +74,8 @@ export function HotkeySettingsPanel() {
 
   const handleHotkeySave = async (newHotkey: string) => {
     try {
+      console.log('[HotkeySettingsPanel] Saving hotkey:', newHotkey);
+
       // Check for conflicts
       const conflictList = await invoke<string[]>('check_hotkey_conflicts', { hotkey: newHotkey });
 
@@ -81,18 +83,21 @@ export function HotkeySettingsPanel() {
         setConflicts(conflictList);
         // Show warning but allow save
         if (!confirm(`此快捷键可能与系统功能冲突：\n${conflictList.join('\n')}\n\n是否继续？`)) {
+          console.log('[HotkeySettingsPanel] User cancelled due to conflicts');
           return;
         }
       }
 
-      // Save the hotkey
-      await invoke('set_hotkey', { hotkey: newHotkey });
+      // Reregister the hotkey dynamically (no restart needed)
+      await invoke('reregister_hotkey', { hotkey: newHotkey });
+      console.log('[HotkeySettingsPanel] Hotkey re-registered successfully');
+
       setCurrentHotkey(newHotkey);
       setEditingHotkey(false);
       setConflicts([]);
 
       // Show success message
-      alert('快捷键已更新，重启应用后生效');
+      alert('快捷键已更新，立即生效');
     } catch (error) {
       console.error('Failed to save hotkey:', error);
       alert('保存快捷键失败：' + (error instanceof Error ? error.message : '未知错误'));
@@ -100,12 +105,15 @@ export function HotkeySettingsPanel() {
   };
 
   const handleResetHotkey = async () => {
+    console.log('[HotkeySettingsPanel] ===== handleResetHotkey called =====');
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const defaultHotkey = isMac ? 'Cmd+Shift+K' : 'Ctrl+Shift+K';
+    console.log('[HotkeySettingsPanel] Platform:', navigator.platform, 'isMac:', isMac);
+    console.log('[HotkeySettingsPanel] Default hotkey:', defaultHotkey);
+    console.log('[HotkeySettingsPanel] Resetting to default hotkey');
 
-    if (confirm(`确定要重置为默认快捷键（${defaultHotkey}）吗？`)) {
-      await handleHotkeySave(defaultHotkey);
-    }
+    // Directly reset to default without confirmation
+    await handleHotkeySave(defaultHotkey);
   };
 
   return (
@@ -173,7 +181,7 @@ export function HotkeySettingsPanel() {
         )}
 
         <p className="hotkey-settings-panel__hint">
-          💡 提示：修改快捷键后需要重启应用才能生效
+          💡 提示：快捷键修改后立即生效，无需重启应用
         </p>
       </section>
 

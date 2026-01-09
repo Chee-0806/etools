@@ -1,12 +1,12 @@
 /**
  * InstalledPluginsView Component
  * Displays installed plugins with search and filter controls
+ * ✅ 激进优化：使用内存缓存，立即返回
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { usePluginState, usePluginDispatch } from '../../services/pluginStateStore';
 import { pluginManagerService } from '../../services/pluginManager';
-import { pluginLoader } from '../../services/pluginLoader';
 import type { Plugin, PluginManifest } from '../../types/plugin';
 import PluginList from './PluginList';
 import BulkActionsToolbar from './BulkActionsToolbar';
@@ -35,50 +35,20 @@ const InstalledPluginsView: React.FC = () => {
 
   /**
    * Load installed plugins
+   * ✅ 激进优化：直接使用内存缓存，几乎立即返回
    */
   const loadPlugins = useCallback(async () => {
     try {
+      console.log('[InstalledPluginsView] Loading plugins...');
       dispatch({ type: 'LOAD_PLUGINS_START' });
 
-      const builtInResults = await pluginLoader.loadBuiltInPlugins();
-      const builtInPlugins = builtInResults
-        .filter((result) => result.plugin !== null && result.plugin !== undefined)
-        .map((result) => {
-          const plugin = result.plugin!;
-          return {
-            ...plugin,
-            enabled: true,
-            health: {
-              status: 'healthy' as const,
-              message: '内置插件',
-              lastChecked: Date.now(),
-              errors: [],
-            },
-            usageStats: {
-              lastUsed: null,
-              usageCount: 0,
-              lastExecutionTime: undefined,
-              averageExecutionTime: undefined,
-            },
-            installedAt: Date.now(),
-          };
-        });
-
+      const startTime = performance.now();
       const installedPlugins = await pluginManagerService.getInstalledPlugins();
+      const endTime = performance.now();
 
-      const mergedPlugins = new Map<string, Plugin>();
+      console.log('[InstalledPluginsView] Plugins loaded in', (endTime - startTime).toFixed(2), 'ms');
 
-      installedPlugins.forEach((plugin) => {
-        mergedPlugins.set(plugin.manifest.id, plugin);
-      });
-
-      builtInPlugins.forEach((plugin) => {
-        mergedPlugins.set(plugin.manifest.id, plugin);
-      });
-
-      const finalPlugins = Array.from(mergedPlugins.values());
-
-      dispatch({ type: 'LOAD_PLUGINS_SUCCESS', payload: finalPlugins });
+      dispatch({ type: 'LOAD_PLUGINS_SUCCESS', payload: installedPlugins });
     } catch (error) {
       dispatch({
         type: 'LOAD_PLUGINS_ERROR',
@@ -88,10 +58,16 @@ const InstalledPluginsView: React.FC = () => {
   }, [dispatch]);
 
   /**
-   * Initial load
+   * Initial load - ✅ 立即加载，使用内存缓存
    */
   useEffect(() => {
+    console.log('[InstalledPluginsView] Component mounted, loading plugins...');
     loadPlugins();
+
+    // Cleanup on unmount
+    return () => {
+      console.log('[InstalledPluginsView] Component unmounted');
+    };
   }, [loadPlugins]);
 
   /**
@@ -148,6 +124,54 @@ const InstalledPluginsView: React.FC = () => {
   };
 
   /**
+   * Handle plugin uninstall
+   */
+  const handleUninstall = async (pluginId: string) => {
+    console.log('[InstalledPluginsView] handleUninstall called for', pluginId);
+    const plugin = state.plugins.find((p) => p.manifest.id === pluginId);
+    if (!plugin) {
+      console.log('[InstalledPluginsView] Plugin not found:', pluginId);
+      return;
+    }
+
+    console.log('[InstalledPluginsView] Found plugin:', plugin.manifest.name);
+
+    try {
+      console.log('[InstalledPluginsView] Calling uninstallPlugin...');
+      await pluginManagerService.uninstallPlugin(pluginId);
+
+      // Unload plugin from PluginLoader to remove it from memory
+      const { pluginLoader } = await import('../../services/pluginLoader');
+      try {
+        await pluginLoader.unloadPlugin(pluginId);
+        console.log('[InstalledPluginsView] Plugin unloaded from memory');
+      } catch (err) {
+        console.warn('[InstalledPluginsView] Failed to unload plugin from memory:', err);
+      }
+
+      dispatch({ type: 'UNINSTALL_PLUGIN', payload: pluginId });
+      dispatch({
+        type: 'SHOW_NOTIFICATION',
+        payload: {
+          type: 'success',
+          title: '卸载成功',
+          message: `插件 "${plugin.manifest.name}" 已成功卸载`,
+        },
+      });
+    } catch (error) {
+      console.error('[InstalledPluginsView] Uninstall failed:', error);
+      dispatch({
+        type: 'SHOW_NOTIFICATION',
+        payload: {
+          type: 'error',
+          title: '卸载失败',
+          message: `Failed to uninstall plugin: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      });
+    }
+  };
+
+  /**
    * Handle plugin selection (toggle)
    */
   const handleSelectPlugin = (pluginId: string) => {
@@ -173,9 +197,10 @@ const InstalledPluginsView: React.FC = () => {
   };
 
   /**
-   * Get filtered plugins
+   * Get filtered plugins - memoized to avoid unnecessary recalculation
+   * Only recomputes when plugins, search query, or filters change
    */
-  const getFilteredPlugins = () => {
+  const filteredPlugins = useMemo(() => {
     return state.plugins.filter((plugin) => {
       // Search filter
       if (searchQuery) {
@@ -203,11 +228,13 @@ const InstalledPluginsView: React.FC = () => {
 
       return true;
     });
-  };
+  }, [state.plugins, searchQuery, statusFilter]);
 
-  const filteredPlugins = getFilteredPlugins();
   const selectedCount = state.selectedPluginIds.size;
-  const filteredPluginIds = filteredPlugins.map((p) => p.manifest.id);
+  const filteredPluginIds = useMemo(
+    () => filteredPlugins.map((p) => p.manifest.id),
+    [filteredPlugins]
+  );
 
   /**
    * Handle bulk operation complete - reload plugins
@@ -318,6 +345,7 @@ const InstalledPluginsView: React.FC = () => {
         selectionMode={selectedCount > 0}
         onToggleSelect={handleSelectPlugin}
         onToggleEnable={handleToggleEnable}
+        onUninstall={handleUninstall}
         onPluginClick={(plugin) => {
           dispatch({ type: 'SHOW_DETAILS', payload: plugin.manifest.id });
         }}

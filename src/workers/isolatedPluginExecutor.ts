@@ -209,16 +209,18 @@ self.onmessage = async (event: MessageEvent<ExecuteMessage>) => {
         throw new Error(`Plugin ${pluginId} missing manifest`);
       }
 
-      if (typeof plugin.onSearch !== 'function') {
-        throw new Error(`Plugin ${pluginId} does not export a valid onSearch function`);
+      // Support both 'search' and 'onSearch' function names
+      const searchFunction = plugin.onSearch || plugin.search;
+      if (typeof searchFunction !== 'function') {
+        throw new Error(`Plugin ${pluginId} does not export a valid search/onSearch function`);
       }
 
       console.log(`[IsolatedPluginExecutor] Plugin loaded: ${plugin.manifest.name} v${plugin.manifest.version}`);
-      console.log(`[IsolatedPluginExecutor] Executing onSearch for plugin ${pluginId} with query: "${query}"`);
+      console.log(`[IsolatedPluginExecutor] Executing search for plugin ${pluginId} with query: "${query}"`);
 
-      // Execute onSearch with timeout
+      // Execute search with timeout
       const results = await executeWithTimeout(
-        () => plugin.onSearch(query),
+        () => searchFunction(query),
         timeout
       );
 

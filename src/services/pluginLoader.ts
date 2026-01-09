@@ -122,6 +122,7 @@ export class PluginLoader {
 
       // Normalize the module path for both main thread and Worker execution
       let normalizedPath = modulePath;
+      let useBlobUrl = false;
 
       if (modulePath.startsWith('../lib/plugins/')) {
         // Built-in plugin: Convert relative path to absolute for Vite
@@ -130,14 +131,22 @@ export class PluginLoader {
         const pluginId = parts[parts.length - 2]; // Get second-to-last part
         normalizedPath = `/src/lib/plugins/${pluginId}/index.ts`;
         console.log(`[PluginLoader] Built-in plugin path: ${normalizedPath}`);
-      } else if (modulePath.startsWith('@etools-plugin/') || modulePath.includes('node_modules/@etools-plugin/')) {
-        // npm plugin: Extract package name and convert to node_modules path
-        const packageName = modulePath.includes('@etools-plugin/')
-          ? modulePath.split('@etools-plugin/')[1]?.split('/')[0]
-          : modulePath;
+      } else if (modulePath.includes('Application Support') || modulePath.includes('node_modules/@etools-plugin')) {
+        // npm plugin from system directory: Use Tauri API to read file
+        console.log(`[PluginLoader] Detected system directory plugin, using Tauri API`);
 
-        // npm plugins are installed in app data dir's node_modules
-        // Path format: /node_modules/@etools-plugin/{package-name}/dist/index.js
+        // Read file content using Tauri API
+        const fileContent = await invoke<string>('read_file', { path: modulePath });
+        console.log(`[PluginLoader] Read plugin file: ${fileContent.length} bytes`);
+
+        // Create Blob URL for the plugin code
+        const blob = new Blob([fileContent], { type: 'application/javascript' });
+        normalizedPath = URL.createObjectURL(blob);
+        useBlobUrl = true;
+        console.log(`[PluginLoader] Created Blob URL: ${normalizedPath}`);
+      } else if (modulePath.startsWith('@etools-plugin/')) {
+        // npm plugin: Extract package name and convert to node_modules path
+        const packageName = modulePath.split('@etools-plugin/')[1]?.split('/')[0];
         normalizedPath = `/node_modules/@etools-plugin/${packageName}/dist/index.js`;
         console.log(`[PluginLoader] NPM plugin path: ${normalizedPath}`);
       }
@@ -145,7 +154,14 @@ export class PluginLoader {
       // Dynamic import of plugin module
       console.log(`[PluginLoader] Attempting to import: ${normalizedPath}`);
       const module = await import(/* @vite-ignore */ normalizedPath);
-      const plugin: Plugin = module.default;
+
+      // Support both default export and named exports
+      // - Default export: export default { manifest, search }
+      // - Named exports: export const manifest = {...}; export async function search() {...}
+      const plugin: Plugin = module.default || {
+        manifest: module.manifest,
+        search: module.search,
+      };
 
       // Validate plugin structure
       if (!plugin.manifest) {
@@ -207,18 +223,30 @@ export class PluginLoader {
   }
 
   /**
+   * Load all installed plugins (alias for loadInstalledNpmPlugins)
+   */
+  async loadInstalledPlugins(): Promise<PluginLoadResult[]> {
+    return this.loadInstalledNpmPlugins();
+  }
+
+  /**
    * Load all installed npm plugins
    * Queries the backend for list of installed npm packages
    */
   async loadInstalledNpmPlugins(): Promise<PluginLoadResult[]> {
     try {
+      console.log('[PluginLoader] ===== loadInstalledNpmPlugins called =====');
       // Get list of installed plugins from backend
       const installedPlugins = await invoke<any[]>('get_installed_plugins');
+      console.log('[PluginLoader] Retrieved plugins from backend:', installedPlugins.length, installedPlugins);
       const results: PluginLoadResult[] = [];
 
       for (const pluginInfo of installedPlugins) {
+        console.log('[PluginLoader] Processing plugin:', pluginInfo.id, 'source:', pluginInfo.source);
         // Skip built-in plugins (they're loaded separately)
-        if (pluginInfo.source !== 'marketplace') {
+        // Load both Marketplace and Local plugins
+        if (pluginInfo.source !== 'marketplace' && pluginInfo.source !== 'local') {
+          console.log('[PluginLoader] Skipping plugin (invalid source):', pluginInfo.id);
           continue;
         }
 
@@ -232,6 +260,7 @@ export class PluginLoader {
         }
 
         console.log(`[PluginLoader] Loading npm plugin: ${packageName} from ${installPath}`);
+        console.log(`[PluginLoader] Plugin enabled state: ${pluginInfo.enabled}`);
 
         // For npm plugins, we need to load them from their install path
         // The plugin should have a dist/index.js file
@@ -239,6 +268,14 @@ export class PluginLoader {
           // Use the install_path directly - it should point to the plugin directory
           const entryPoint = `${installPath}/dist/index.js`;
           const result = await this.loadPlugin(entryPoint);
+
+          // Set plugin enabled state based on backend info
+          if (result.plugin && !pluginInfo.enabled) {
+            console.log(`[PluginLoader] Disabling plugin: ${packageName}`);
+            const { getPluginSandbox } = await import('./pluginSandbox');
+            getPluginSandbox().setPluginEnabled(packageName, false);
+          }
+
           results.push(result);
         } catch (error) {
           console.error(`[PluginLoader] Failed to load npm plugin ${packageName}:`, error);

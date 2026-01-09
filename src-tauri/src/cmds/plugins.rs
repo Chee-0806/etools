@@ -27,6 +27,29 @@ fn ensure_plugins_dir(handle: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Find plugin path by trying multiple possible locations.
+/// Simplifies duplicate path-finding logic across enable/disable/uninstall commands.
+///
+/// Tries two locations:
+/// 1. Direct plugin directory: plugins/{plugin_id}
+/// 2. NPM-style scoped directory: plugins/node_modules/@etools-plugin/{plugin_id}
+fn find_plugin_path(plugins_dir: &PathBuf, plugin_id: &str) -> Result<PathBuf, String> {
+    let direct_path = plugins_dir.join(plugin_id);
+    let npm_path = plugins_dir
+        .join("node_modules")
+        .join("@etools-plugin")
+        .join(plugin_id);
+
+    // Try direct path first, then npm-style path
+    if direct_path.exists() {
+        Ok(direct_path)
+    } else if npm_path.exists() {
+        Ok(npm_path)
+    } else {
+        Err(format!("插件不存在: {}", plugin_id))
+    }
+}
+
 /// List all installed plugins
 #[tauri::command]
 pub fn plugin_list(handle: AppHandle) -> Result<Vec<Plugin>, String> {
@@ -289,6 +312,14 @@ fn save_plugin_enabled_state(handle: &AppHandle, plugin_id: &str, enabled: bool)
 
     // Save the updated state
     save_plugin_state(handle, &new_state)
+}
+
+/// Get plugin enabled state
+pub fn get_plugin_enabled_state(handle: &AppHandle, plugin_id: &str) -> Result<bool, String> {
+    let state = load_plugin_state(handle)?;
+
+    // If plugin is not in state, it's enabled by default
+    Ok(state.get(plugin_id).copied().unwrap_or(true))
 }
 
 /// Remove plugin state (US4)
@@ -1327,28 +1358,25 @@ pub async fn plugin_extract_package_from_buffer(
 #[tauri::command]
 pub async fn plugin_enable(handle: AppHandle, plugin_id: String) -> Result<Plugin, String> {
     let plugins_dir = ensure_plugins_dir(&handle)?;
-    let plugin_path = plugins_dir.join(&plugin_id);
 
-    // Check if plugin exists
-    if !plugin_path.exists() {
-        return Err(format!("插件不存在: {}", plugin_id));
-    }
+    // Find plugin path (tries direct and npm-style locations)
+    let actual_path = find_plugin_path(&plugins_dir, &plugin_id)?;
 
     // Update enabled state
     save_plugin_enabled_state(&handle, &plugin_id, true)?;
 
     // Load and return updated plugin
-    let manifest_path = plugin_path.join("plugin.json");
+    let manifest_path = actual_path.join("plugin.json");
     let manifest = read_plugin_manifest(&manifest_path)
         .map_err(|e| format!("Failed to read manifest: {}", e))?;
 
-    let health = get_plugin_health_for(&plugin_id, &plugin_path)?;
+    let health = get_plugin_health_for(&plugin_id, &actual_path)?;
     let stats = load_plugin_usage_stats(&handle)?
         .get(&plugin_id)
         .cloned()
         .unwrap_or_default();
 
-    let installed_at = get_plugin_installation_time(&plugin_path)
+    let installed_at = get_plugin_installation_time(&actual_path)
         .map_err(|e| format!("Failed to get installation time: {}", e))?;
 
     Ok(Plugin {
@@ -1364,7 +1392,7 @@ pub async fn plugin_enable(handle: AppHandle, plugin_id: String) -> Result<Plugi
         settings: HashMap::new(),
         health,
         usage_stats: stats,
-        install_path: plugin_path.to_string_lossy().to_string(),
+        install_path: actual_path.to_string_lossy().to_string(),
         source: crate::models::plugin::PluginSource::Local,
         installed_at,
     })
@@ -1374,28 +1402,25 @@ pub async fn plugin_enable(handle: AppHandle, plugin_id: String) -> Result<Plugi
 #[tauri::command]
 pub async fn plugin_disable(handle: AppHandle, plugin_id: String) -> Result<Plugin, String> {
     let plugins_dir = ensure_plugins_dir(&handle)?;
-    let plugin_path = plugins_dir.join(&plugin_id);
 
-    // Check if plugin exists
-    if !plugin_path.exists() {
-        return Err(format!("插件不存在: {}", plugin_id));
-    }
+    // Find plugin path (tries direct and npm-style locations)
+    let actual_path = find_plugin_path(&plugins_dir, &plugin_id)?;
 
     // Update enabled state
     save_plugin_enabled_state(&handle, &plugin_id, false)?;
 
     // Load and return updated plugin
-    let manifest_path = plugin_path.join("plugin.json");
+    let manifest_path = actual_path.join("plugin.json");
     let manifest = read_plugin_manifest(&manifest_path)
         .map_err(|e| format!("Failed to read manifest: {}", e))?;
 
-    let health = get_plugin_health_for(&plugin_id, &plugin_path)?;
+    let health = get_plugin_health_for(&plugin_id, &actual_path)?;
     let stats = load_plugin_usage_stats(&handle)?
         .get(&plugin_id)
         .cloned()
         .unwrap_or_default();
 
-    let installed_at = get_plugin_installation_time(&plugin_path)
+    let installed_at = get_plugin_installation_time(&actual_path)
         .map_err(|e| format!("Failed to get installation time: {}", e))?;
 
     Ok(Plugin {
@@ -1411,7 +1436,7 @@ pub async fn plugin_disable(handle: AppHandle, plugin_id: String) -> Result<Plug
         settings: HashMap::new(),
         health,
         usage_stats: stats,
-        install_path: plugin_path.to_string_lossy().to_string(),
+        install_path: actual_path.to_string_lossy().to_string(),
         source: crate::models::plugin::PluginSource::Local,
         installed_at,
     })
@@ -1425,12 +1450,9 @@ pub async fn plugin_disable(handle: AppHandle, plugin_id: String) -> Result<Plug
 #[tauri::command]
 pub async fn plugin_uninstall(handle: AppHandle, plugin_id: String) -> Result<(), String> {
     let plugins_dir = ensure_plugins_dir(&handle)?;
-    let plugin_path = plugins_dir.join(&plugin_id);
 
-    // Check if plugin exists
-    if !plugin_path.exists() {
-        return Err(format!("插件不存在: {}", plugin_id));
-    }
+    // Find plugin path (tries direct and npm-style locations)
+    let actual_path = find_plugin_path(&plugins_dir, &plugin_id)?;
 
     // TODO: Check if it's a core plugin that should not be uninstalled
     let core_plugins = vec!["core", "system"];
@@ -1439,7 +1461,7 @@ pub async fn plugin_uninstall(handle: AppHandle, plugin_id: String) -> Result<()
     }
 
     // Remove plugin directory
-    fs::remove_dir_all(&plugin_path)
+    fs::remove_dir_all(&actual_path)
         .map_err(|e| format!("Failed to remove plugin directory: {}", e))?;
 
     // Remove plugin state

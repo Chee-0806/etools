@@ -5,6 +5,7 @@
 
 pub mod files;
 pub mod browser;
+pub mod plugin_schema;
 
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};

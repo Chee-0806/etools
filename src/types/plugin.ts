@@ -194,9 +194,54 @@ export type PluginCategory =
   | 'integration';
 
 /**
- * Marketplace plugin (extends PluginManifest with market-specific fields)
+ * Marketplace plugin (静态 JSON 数据源)
+ * ✅ 匹配 GitHub 仓库中的 JSON 格式
  */
 export interface MarketplacePlugin {
+  // 基本信息
+  name: string;                  // npm 包名，如 "@etools-plugin/hello"
+  pluginName: string;            // 显示名称，如 "Hello World"
+  description: string;           // 简短描述
+  logo: string;                  // 图标 URL
+
+  // 作者信息
+  author: string;                // 作者名称
+  homepage?: string;             // 项目主页 URL
+
+  // 版本和下载
+  version: string;               // 最新版本号
+  downloads?: number;            // 下载次数（可选）
+
+  // 功能说明
+  features: string[];            // 功能特性列表
+  keywords: string[];            // 搜索关键词
+
+  // 截图和文档
+  screenshots?: string[];        // 截图 URL 列表（可选）
+  readme?: string;               // README URL（可选）
+
+  // 分类
+  category: PluginCategory;      // 插件分类
+  tags?: string[];               // 标签（可选）
+
+  // 系统要求
+  permissions?: string[];        // 所需权限（可选）
+  platform?: string[];           // 支持平台（可选）
+
+  // 安装信息
+  isDev?: boolean;               // 是否为开发插件（默认 false）
+  core?: boolean;                // 是否为核心插件（默认 false）
+
+  // UI 状态字段（非 JSON 数据，前端维护）
+  installed?: boolean;           // 是否已安装（前端字段）
+  installing?: boolean;          // 是否正在安装（前端字段）
+}
+
+/**
+ * Legacy MarketplacePlugin interface (兼容旧代码，已废弃)
+ * @deprecated 使用新的 MarketplacePlugin 接口
+ */
+export interface MarketplacePluginLegacy {
   // === From PluginManifest ===
   id: string;
   name: string;

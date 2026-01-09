@@ -142,11 +142,79 @@ pub struct CancelInstallResponse {
     pub cleanup_required: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PluginTrigger {
     pub keyword: String,
     pub description: String,
     pub hotkey: Option<String>,
+}
+
+// Custom deserialization to support both string and object formats
+impl<'de> Deserialize<'de> for PluginTrigger {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{Error, Visitor};
+        use std::fmt;
+
+        struct PluginTriggerVisitor;
+
+        impl<'de> Visitor<'de> for PluginTriggerVisitor {
+            type Value = PluginTrigger;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string or an object with keyword field")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                Ok(PluginTrigger {
+                    keyword: value.to_string(),
+                    description: String::new(),
+                    hotkey: None,
+                })
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: serde::de::MapAccess<'de>,
+            {
+                let mut keyword = None;
+                let mut description = None;
+                let mut hotkey = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "keyword" => {
+                            keyword = Some(map.next_value()?);
+                        }
+                        "description" => {
+                            description = Some(map.next_value()?);
+                        }
+                        "hotkey" => {
+                            hotkey = Some(map.next_value()?);
+                        }
+                        _ => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+
+                let keyword = keyword.ok_or_else(|| Error::missing_field("keyword"))?;
+
+                Ok(PluginTrigger {
+                    keyword,
+                    description: description.unwrap_or_default(),
+                    hotkey,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(PluginTriggerVisitor)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

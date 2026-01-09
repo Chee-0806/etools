@@ -8,4 +8,5 @@ pub mod search;
 pub mod search_test;
 pub mod settings;
 pub mod shell;
+pub mod files;
 pub mod window;

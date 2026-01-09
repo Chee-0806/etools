@@ -189,6 +189,43 @@ export class PluginSandbox {
   }
 
   /**
+   * Set plugin enabled/disabled state
+   *
+   * @param pluginId - Plugin identifier
+   * @param enabled - Whether the plugin should be enabled
+   */
+  setPluginEnabled(pluginId: string, enabled: boolean): void {
+    console.log(`[PluginSandbox] setPluginEnabled called for ${pluginId}, enabled: ${enabled}`);
+    const context = this.contexts.get(pluginId);
+
+    if (!context) {
+      console.warn(`[PluginSandbox] Cannot set enabled state for unregistered plugin: ${pluginId}`);
+      console.warn(`[PluginSandbox] Available plugins:`, Array.from(this.contexts.keys()));
+      return;
+    }
+
+    const oldState = context.isEnabled;
+    context.isEnabled = enabled;
+    console.log(`[PluginSandbox] Plugin ${pluginId} state changed: ${oldState} -> ${enabled}`);
+  }
+
+  /**
+   * Get plugin context
+   *
+   * @param pluginId - Plugin identifier
+   * @returns Plugin context or undefined
+   */
+  getPluginContext(pluginId: string) {
+    const context = this.contexts.get(pluginId);
+    console.log(`[PluginSandbox] getPluginContext for ${pluginId}:`, context ? {
+      isEnabled: context.isEnabled,
+      hasPath: !!context.pluginPath,
+      path: context.pluginPath
+    } : null);
+    return context;
+  }
+
+  /**
    * Check if plugin has permission (T097)
    */
   checkPermission(pluginId: string, permission: PluginPermission): boolean {

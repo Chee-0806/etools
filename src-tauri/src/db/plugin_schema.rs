@@ -1,4 +1,3 @@
-use rusqlite::NO_PARAMS;
 /**
  * Plugin Management Database Schema
  * Database tables and migrations for plugin management
@@ -32,7 +31,7 @@ pub fn create_plugin_tables(conn: &Connection) -> SqliteResult<()> {
             install_path TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT 'local'
         )",
-        NO_PARAMS,
+[],
     )?;
 
     // Create plugin_config table
@@ -45,7 +44,7 @@ pub fn create_plugin_tables(conn: &Connection) -> SqliteResult<()> {
             auto_update BOOLEAN NOT NULL DEFAULT 0,
             update_channel TEXT NOT NULL DEFAULT 'stable'
         )",
-        NO_PARAMS,
+[],
     )?;
 
     // Create plugin_events table for auditing
@@ -59,7 +58,7 @@ pub fn create_plugin_tables(conn: &Connection) -> SqliteResult<()> {
             error TEXT,
             FOREIGN KEY (plugin_id) REFERENCES plugins(id) ON DELETE CASCADE
         )",
-        NO_PARAMS,
+[],
     )?;
 
     // Create bulk_operations table
@@ -74,28 +73,28 @@ pub fn create_plugin_tables(conn: &Connection) -> SqliteResult<()> {
             completed_at INTEGER,
             FOREIGN KEY (target_plugin_ids) REFERENCES plugins(id) ON DELETE CASCADE
         )",
-        NO_PARAMS,
+[],
     )?;
 
     // Create indexes for better performance
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_plugins_enabled ON plugins(enabled)",
-        NO_PARAMS,
+[],
     )?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_plugins_installed_at ON plugins(installed_at)",
-        NO_PARAMS,
+[],
     )?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_plugin_events_plugin_id ON plugin_events(plugin_id)",
-        NO_PARAMS,
+[],
     )?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_plugin_events_timestamp ON plugin_events(timestamp)",
-        NO_PARAMS,
+[],
     )?;
 
     Ok(())
@@ -111,7 +110,7 @@ pub fn create_plugin_triggers(conn: &Connection) -> SqliteResult<()> {
         BEGIN
             UPDATE plugins SET health_last_checked = strftime('%s', 'now') WHERE id = NEW.id;
         END",
-        NO_PARAMS,
+[],
     )?;
 
     // Trigger to automatically update usage stats when plugin is used
@@ -129,7 +128,7 @@ pub fn create_plugin_triggers(conn: &Connection) -> SqliteResult<()> {
                 usage_last_execution_time = NEW.timestamp
             WHERE id = NEW.plugin_id;
         END",
-        NO_PARAMS,
+[],
     )?;
 
     Ok(())
@@ -144,7 +143,7 @@ pub fn migrate_to_v2(conn: &Connection) -> SqliteResult<()> {
     ];
 
     for sql in add_columns {
-        match conn.execute(sql, NO_PARAMS) {
+        match conn.execute(sql, []) {
             Ok(_) => {} // Column added successfully
             Err(e) => {
                 // Check if column already exists
@@ -161,17 +160,17 @@ pub fn migrate_to_v2(conn: &Connection) -> SqliteResult<()> {
 /// Get database statistics for monitoring
 pub fn get_database_stats(conn: &Connection) -> SqliteResult<DatabaseStats> {
     let plugin_count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM plugins", NO_PARAMS, |row| row.get(0))?;
+        conn.query_row("SELECT COUNT(*) FROM plugins", [], |row| row.get(0))?;
 
     let enabled_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM plugins WHERE enabled = 1",
-        NO_PARAMS,
+[],
         |row| row.get(0),
     )?;
 
     let recent_installations: i64 = conn.query_row(
         "SELECT COUNT(*) FROM plugins WHERE installed_at > strftime('%s', 'now', '-7 days')",
-        NO_PARAMS,
+[],
         |row| row.get(0),
     )?;
 
@@ -196,7 +195,7 @@ pub fn initialize_default_data(conn: &Connection) -> SqliteResult<()> {
     conn.execute(
         "INSERT OR IGNORE INTO plugin_config (plugin_id, enabled, granted_permissions, settings)
         VALUES ('core', 1, '[]', '{}')",
-        NO_PARAMS,
+[],
     )?;
 
     Ok(())

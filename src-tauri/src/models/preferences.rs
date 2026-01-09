@@ -138,26 +138,20 @@ impl Default for Theme {
 
 impl Default for AppSettings {
     fn default() -> Self {
-        // Set default hotkey based on platform
-        #[cfg(target_os = "macos")]
-        let default_hotkey = "Cmd+Space".to_string();
-        #[cfg(not(target_os = "macos"))]
-        let default_hotkey = "Alt+Space".to_string();
-
         Self {
             startup_behavior: StartupBehavior::OnDemand,
-            language: "en".to_string(),
-            global_hotkey: default_hotkey,
+            language: default_language(),
+            global_hotkey: default_global_hotkey(),
             theme: Theme::System,
-            window_opacity: 0.95,
-            show_menubar_icon: true,
-            enable_clipboard: true,
+            window_opacity: default_window_opacity(),
+            show_menubar_icon: default_show_menubar_icon(),
+            enable_clipboard: default_enable_clipboard(),
             enable_file_search: false,
             enable_browser_search: false,
-            anonymize_usage: true,
+            anonymize_usage: default_anonymize_usage(),
             crash_reports: false,
-            search_debounce_ms: 150,
-            max_results: 50,
+            search_debounce_ms: default_search_debounce_ms(),
+            max_results: default_max_results(),
             excluded_apps: vec![],
             file_index_paths: vec![],
         }

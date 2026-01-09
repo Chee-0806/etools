@@ -7,7 +7,7 @@ use crate::models::preferences::AppSettings;
 use serde_json;
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Settings storage path
 fn get_settings_path(handle: &AppHandle) -> Result<PathBuf, String> {
@@ -66,108 +66,81 @@ pub fn get_settings(handle: AppHandle) -> Result<AppSettings, String> {
     load_settings(&handle)
 }
 
+/// Macro to generate setting getter match arms
+/// Simplifies repetitive pattern matching for each setting field
+macro_rules! impl_get_setting_match {
+    ($settings:ident, $key:ident, { $($field:ident),* $(,)? }) => {
+        match $key.as_str() {
+            $(
+                stringify!($field) => serde_json::to_value($settings.$field)
+                    .map_err(|e| format!("Serialization error: {}", e)),
+            )*
+            _ => Err(format!("Unknown setting key: {}", $key)),
+        }
+    };
+}
+
 /// Get a single setting value by key (T025)
+/// Simplified using macro to reduce code duplication
 #[tauri::command]
 pub fn get_setting(handle: AppHandle, key: String) -> Result<serde_json::Value, String> {
     let settings = load_settings(&handle)?;
+    impl_get_setting_match!(settings, key, {
+        startup_behavior,
+        language,
+        theme,
+        window_opacity,
+        show_menubar_icon,
+        enable_clipboard,
+        enable_file_search,
+        enable_browser_search,
+        anonymize_usage,
+        crash_reports,
+        search_debounce_ms,
+        max_results,
+        excluded_apps,
+        file_index_paths,
+    })
+}
 
-    match key.as_str() {
-        "startup_behavior" => Ok(serde_json::to_value(settings.startup_behavior)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "language" => Ok(serde_json::to_value(settings.language)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "theme" => Ok(serde_json::to_value(settings.theme)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "window_opacity" => Ok(serde_json::to_value(settings.window_opacity)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "show_menubar_icon" => Ok(serde_json::to_value(settings.show_menubar_icon)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "enable_clipboard" => Ok(serde_json::to_value(settings.enable_clipboard)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "enable_file_search" => Ok(serde_json::to_value(settings.enable_file_search)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "enable_browser_search" => Ok(serde_json::to_value(settings.enable_browser_search)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "anonymize_usage" => Ok(serde_json::to_value(settings.anonymize_usage)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "crash_reports" => Ok(serde_json::to_value(settings.crash_reports)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "search_debounce_ms" => Ok(serde_json::to_value(settings.search_debounce_ms)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "max_results" => Ok(serde_json::to_value(settings.max_results)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "excluded_apps" => Ok(serde_json::to_value(settings.excluded_apps)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        "file_index_paths" => Ok(serde_json::to_value(settings.file_index_paths)
-            .map_err(|e| format!("Serialization error: {}", e))?),
-        _ => Err(format!("Unknown setting key: {}", key)),
-    }
+/// Macro to generate setting setter match arms
+/// Simplifies repetitive pattern matching for each setting field
+macro_rules! impl_set_setting_match {
+    ($settings:ident, $key:ident, $value:ident, { $($field:ident),* $(,)? }) => {
+        match $key.as_str() {
+            $(
+                stringify!($field) => {
+                    $settings.$field = serde_json::from_value($value)
+                        .map_err(|e| format!("Invalid {}: {}", stringify!($field), e))?;
+                }
+            )*
+            _ => return Err(format!("Unknown setting key: {}", $key)),
+        }
+    };
 }
 
 /// Set a single setting value by key (T026)
+/// Simplified using macro to reduce code duplication
 #[tauri::command]
 pub fn set_setting(handle: AppHandle, key: String, value: serde_json::Value) -> Result<(), String> {
     let mut settings = load_settings(&handle)?;
 
-    match key.as_str() {
-        "startup_behavior" => {
-            settings.startup_behavior = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid startup_behavior: {}", e))?;
-        }
-        "language" => {
-            settings.language = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid language: {}", e))?;
-        }
-        "theme" => {
-            settings.theme = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid theme: {}", e))?;
-        }
-        "window_opacity" => {
-            settings.window_opacity = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid window_opacity: {}", e))?;
-        }
-        "show_menubar_icon" => {
-            settings.show_menubar_icon = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid show_menubar_icon: {}", e))?;
-        }
-        "enable_clipboard" => {
-            settings.enable_clipboard = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid enable_clipboard: {}", e))?;
-        }
-        "enable_file_search" => {
-            settings.enable_file_search = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid enable_file_search: {}", e))?;
-        }
-        "enable_browser_search" => {
-            settings.enable_browser_search = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid enable_browser_search: {}", e))?;
-        }
-        "anonymize_usage" => {
-            settings.anonymize_usage = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid anonymize_usage: {}", e))?;
-        }
-        "crash_reports" => {
-            settings.crash_reports = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid crash_reports: {}", e))?;
-        }
-        "search_debounce_ms" => {
-            settings.search_debounce_ms = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid search_debounce_ms: {}", e))?;
-        }
-        "max_results" => {
-            settings.max_results = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid max_results: {}", e))?;
-        }
-        "excluded_apps" => {
-            settings.excluded_apps = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid excluded_apps: {}", e))?;
-        }
-        "file_index_paths" => {
-            settings.file_index_paths = serde_json::from_value(value)
-                .map_err(|e| format!("Invalid file_index_paths: {}", e))?;
-        }
-        _ => return Err(format!("Unknown setting key: {}", key)),
-    }
+    impl_set_setting_match!(settings, key, value, {
+        startup_behavior,
+        language,
+        theme,
+        window_opacity,
+        show_menubar_icon,
+        enable_clipboard,
+        enable_file_search,
+        enable_browser_search,
+        anonymize_usage,
+        crash_reports,
+        search_debounce_ms,
+        max_results,
+        excluded_apps,
+        file_index_paths,
+    });
 
     save_settings(&handle, &settings)
 }
@@ -226,12 +199,199 @@ pub fn set_hotkey(handle: AppHandle, hotkey: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Unregister all global hotkeys
+#[tauri::command]
+pub fn unregister_all_hotkeys(handle: AppHandle) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    handle.global_shortcut().unregister_all()
+        .map_err(|e| format!("Failed to unregister hotkeys: {}", e))?;
+
+    println!("All hotkeys unregistered");
+    Ok(())
+}
+
+/// Reregister global hotkey at runtime without restart
+#[tauri::command]
+pub fn reregister_hotkey(handle: AppHandle, hotkey: String) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    // Validate hotkey format
+    if !validate_hotkey(&hotkey) {
+        return Err("Invalid hotkey format".to_string());
+    }
+
+    // Unregister all existing global shortcuts
+    handle.global_shortcut().unregister_all()
+        .map_err(|e| format!("Failed to unregister existing shortcuts: {}", e))?;
+
+    // Parse and register the new hotkey
+    let shortcut = crate::parse_hotkey(&hotkey)?;
+
+    // Get the main window
+    let window = handle.get_webview_window("main")
+        .ok_or("Main window not found")?;
+
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let is_toggling = Arc::new(AtomicBool::new(false));
+    let window_clone = window.clone();
+    let handle_clone = handle.clone();
+
+    handle.global_shortcut().on_shortcut(shortcut, move |_, _, _| {
+        // Prevent rapid toggle
+        if is_toggling.swap(true, Ordering::SeqCst) {
+            println!("[GlobalShortcut] Ignoring rapid toggle");
+            return;
+        }
+
+        let is_visible = window_clone.is_visible().unwrap_or(false);
+        println!("[GlobalShortcut] Toggle triggered, window visible: {}", is_visible);
+
+        if is_visible {
+            let _ = window_clone.hide();
+            println!("[GlobalShortcut] Window hidden");
+        } else {
+            // 显示窗口前先定位到鼠标所在屏幕的中心偏上位置
+            use tauri::Manager;
+
+            // 获取鼠标位置
+            if let Ok(cursor_pos) = window_clone.cursor_position() {
+                let cursor_x = cursor_pos.x as i32;
+                let cursor_y = cursor_pos.y as i32;
+
+                println!("[GlobalShortcut] Cursor position: ({}, {})", cursor_x, cursor_y);
+
+                // 遍历所有显示器，找到包含鼠标位置的显示器
+                let target_monitor = window_clone.available_monitors()
+                    .ok()
+                    .and_then(|monitors| {
+                        monitors.into_iter().find(|monitor| {
+                            let monitor_pos = monitor.position();
+                            let monitor_size = monitor.size();
+
+                            let monitor_x = monitor_pos.x as i32;
+                            let monitor_y = monitor_pos.y as i32;
+                            let monitor_width = monitor_size.width as i32;
+                            let monitor_height = monitor_size.height as i32;
+
+                            // 检查鼠标是否在该显示器范围内
+                            cursor_x >= monitor_x &&
+                                cursor_x < monitor_x + monitor_width &&
+                                cursor_y >= monitor_y &&
+                                cursor_y < monitor_y + monitor_height
+                        })
+                    });
+
+                if let Some(monitor) = target_monitor {
+                    let monitor_pos = monitor.position();
+                    let monitor_size = monitor.size();
+
+                    let monitor_x = monitor_pos.x as i32;
+                    let monitor_y = monitor_pos.y as i32;
+                    let monitor_width = monitor_size.width as i32;
+                    let monitor_height = monitor_size.height as i32;
+
+                    // 计算显示器的中心位置
+                    let center_x = monitor_x + monitor_width / 2;
+                    let center_y = monitor_y + monitor_height / 2;
+
+                    // 窗口中心点向上偏移（显示器高度的 1/15），更符合人体工学
+                    let offset_y = monitor_height / 15;
+                    let target_center_x = center_x;
+                    let target_center_y = center_y - offset_y;
+
+                    // 获取窗口实际尺寸（考虑 DPI 缩放）
+                    let actual_size = match window_clone.outer_size() {
+                        Ok(size) => {
+                            println!("[GlobalShortcut] Got actual window size: {}x{}", size.width, size.height);
+                            (size.width as i32, size.height as i32)
+                        }
+                        Err(_) => {
+                            println!("[GlobalShortcut] Failed to get window size, using expected size");
+                            (800i32, 600i32)
+                        }
+                    };
+
+                    let actual_width = actual_size.0;
+                    let actual_height = actual_size.1;
+
+                    // 使用实际窗口尺寸计算位置
+                    let x = target_center_x - actual_width / 2;
+                    let y = target_center_y - actual_height / 2;
+
+                    println!("[GlobalShortcut] Found monitor: {}x{} at ({}, {})", monitor_width, monitor_height, monitor_x, monitor_y);
+                    println!("[GlobalShortcut] Monitor center: ({}, {})", center_x, center_y);
+                    println!("[GlobalShortcut] Target center (offset -{}): ({}, {})", offset_y, target_center_x, target_center_y);
+                    println!("[GlobalShortcut] Actual window size: {}x{}", actual_width, actual_height);
+                    println!("[GlobalShortcut] Window position (top-left): ({}, {})", x, y);
+
+                    let _ = window_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                } else {
+                    println!("[GlobalShortcut] ✗ No monitor found, using current_monitor as fallback");
+                    // 回退到 current_monitor
+                    match window_clone.current_monitor() {
+                        Ok(Some(monitor)) => {
+                            let monitor_pos = monitor.position();
+                            let monitor_size = monitor.size();
+
+                            let monitor_x = monitor_pos.x as i32;
+                            let monitor_y = monitor_pos.y as i32;
+                            let monitor_width = monitor_size.width as i32;
+                            let monitor_height = monitor_size.height as i32;
+
+                            let center_x = monitor_x + monitor_width / 2;
+                            let center_y = monitor_y + monitor_height / 2;
+
+                            let x = center_x - 800i32 / 2;
+                            let y = center_y - 600i32 / 2;
+
+                            println!("[GlobalShortcut] Fallback monitor: {}x{} at ({}, {})", monitor_width, monitor_height, monitor_x, monitor_y);
+                            println!("[GlobalShortcut] Fallback center: ({}, {}), Window: ({}, {})", center_x, center_y, x, y);
+
+                            let _ = window_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                        }
+                        _ => {
+                            let _ = window_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: 100, y: 100 }));
+                        }
+                    }
+                }
+            }
+
+            // 显示窗口
+            let _ = window_clone.show();
+            let _ = window_clone.set_focus();
+            println!("[GlobalShortcut] Window shown and focused");
+
+            // 发送事件到前端，通知窗口已显示并聚焦
+            let _ = handle_clone.emit_to("main", "window-shown", ());
+        }
+
+        // Reset the flag after a short delay
+        let flag = is_toggling.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            flag.store(false, Ordering::SeqCst);
+        });
+    }).map_err(|e| format!("Failed to register global shortcut: {}", e))?;
+
+    // Save to settings
+    let mut settings = load_settings(&handle)?;
+    settings.global_hotkey = hotkey.clone();
+    save_settings(&handle, &settings)?;
+
+    println!("Hotkey reregistered successfully: {}", hotkey);
+
+    Ok(())
+}
+
 /// Validate hotkey format
 fn validate_hotkey(hotkey: &str) -> bool {
     let valid_modifiers = ["Cmd", "Ctrl", "Alt", "Shift", "Option", "Super"];
     let parts: Vec<&str> = hotkey.split('+').collect();
 
-    if parts.is_empty() || parts.len() > 4 {
+    if parts.is_empty() || parts.len() > 5 {
         return false;
     }
 

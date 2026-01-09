@@ -377,3 +377,89 @@
   padding: var(--spacing-4);
   border-top: var(--border-width) solid rgb(var(--color-border-default));
 }
+
+/* ========================================================================
+   新增样式：分类按钮图标、特性列表、分类徽章等
+   ======================================================================== */
+
+/* Category Filter Icon */
+.category-filter .category-icon {
+  font-size: var(--font-size-lg);
+  margin-right: var(--spacing-1);
+}
+
+.category-filter .category-name {
+  font-size: var(--font-size-sm);
+}
+
+/* Category Badge */
+.plugin-category-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  background: rgb(var(--color-bg-tertiary));
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: rgb(var(--color-text-secondary));
+  margin-top: var(--spacing-1);
+}
+
+.plugin-category-badge .category-icon {
+  font-size: var(--font-size-sm);
+}
+
+/* Plugin Features List */
+.plugin-features {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  margin-bottom: var(--spacing-3);
+}
+
+.feature-item {
+  font-size: var(--font-size-sm);
+  color: rgb(var(--color-text-secondary));
+  line-height: var(--line-height-normal);
+}
+
+/* Error Hint */
+.error-hint {
+  margin-top: var(--spacing-4);
+  padding: var(--spacing-3);
+  background: rgb(var(--color-bg-secondary));
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: rgb(var(--color-text-secondary));
+}
+
+.error-hint code {
+  padding: var(--spacing-1) var(--spacing-2);
+  background: rgb(var(--color-bg-primary));
+  border: var(--border-width) solid rgb(var(--color-border-default));
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* Button Icons */
+.category-filter {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .category-filters {
+    gap: var(--spacing-1);
+  }
+
+  .category-filter {
+    font-size: var(--font-size-xs);
+    padding: var(--spacing-1) var(--spacing-2);
+  }
+
+  .marketplace-plugins {
+    grid-template-columns: 1fr;
+  }
+}

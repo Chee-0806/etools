@@ -30,32 +30,32 @@ import "@/styles/components/SettingsWindow.css";
 import "@/styles/components/PluginManager/PluginManager.css";
 import "@/styles/components/SidebarPanel.css";
 
-// Check if running in Tauri environment
-const isTauri = () => typeof window !== 'undefined' && (window as any).__TAURI__ !== undefined;
-
-// Type declaration for Tauri environment detection
-declare global {
-  interface Window {
-    __TAURI__?: unknown;
-  }
-}
-
 function App() {
   const { resolvedTheme } = useTheme();
 
   useEffect(() => {
-    const loadBuiltInPlugins = async () => {
+    const initializeApp = async () => {
+      // ✅ 内置插件在应用启动时加载，不在插件管理器显示
       try {
         await pluginLoader.loadBuiltInPlugins();
+        console.log('[App] Built-in plugins loaded successfully');
       } catch (error) {
         console.error('[App] Failed to load built-in plugins:', error);
       }
+
+      // ✅ 加载已安装的插件（从文件系统）
+      try {
+        await pluginLoader.loadInstalledPlugins();
+        console.log('[App] Installed plugins loaded successfully');
+      } catch (error) {
+        console.error('[App] Failed to load installed plugins:', error);
+      }
+
+      // Initialize sandbox developer tools in development mode
+      initSandboxDevTools();
     };
 
-    loadBuiltInPlugins();
-
-    // Initialize sandbox developer tools in development mode
-    initSandboxDevTools();
+    initializeApp();
   }, []);
 
   // 单窗口架构：使用 ViewContainer 管理视图切换
@@ -66,6 +66,16 @@ function App() {
       <ViewContainer />
     </PluginStoreProvider>
   );
+}
+
+// Check if running in Tauri environment
+const isTauri = () => typeof window !== 'undefined' && (window as any).__TAURI__ !== undefined;
+
+// Type declaration for Tauri environment detection
+declare global {
+  interface Window {
+    __TAURI__?: unknown;
+  }
 }
 
 export default App;
