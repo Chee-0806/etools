@@ -1,18 +1,16 @@
 /**
- * SearchWindow - Unified single window for search input and results
- * Displays both the search input and results in the same window
- * Window height dynamically adjusts based on results
+ * SearchView - 搜索视图
+ * 单窗口架构下的搜索界面，包含搜索输入和结果展示
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useSearch } from '@/hooks/useSearch';
-import { ResultList } from './ResultList';
+import { useViewManagerStore } from '@/stores/viewManagerStore';
+import { ResultList } from '../ResultList';
 import type { SearchResult } from '@/types/search';
-import { Kbd } from './ui/Kbd';
 import { logger, initLogger } from '@/lib/logger';
-import { SettingsButton } from './SearchWindow/SettingsButton';
 
 // Recent App Item Component
 interface RecentAppItemProps {
@@ -33,7 +31,6 @@ function RecentAppItem({ app, onClick }: RecentAppItemProps) {
   useEffect(() => {
     mountedRef.current = true;
 
-    // Load icon if not available and running in Tauri
     if (!iconUrl && !loadingRef.current && isTauri()) {
       loadingRef.current = true;
 
@@ -67,7 +64,7 @@ function RecentAppItem({ app, onClick }: RecentAppItemProps) {
     };
   }, [app.executable_path, iconUrl]);
 
-  const isEmojiIcon = iconUrl && /^[\p{Emoji}\p{Symbol}\p{Other_Symbol}]/u.test(iconUrl);
+  const isEmojiIcon = iconUrl && /^[p{Emoji}p{Symbol}p{Other_Symbol}]/u.test(iconUrl);
 
   return (
     <div className="default-item" onClick={onClick}>
@@ -90,28 +87,25 @@ function RecentAppItem({ app, onClick }: RecentAppItemProps) {
   );
 }
 
-// Type declaration for Tauri environment detection
 declare global {
   interface Window {
     __TAURI__?: unknown;
   }
 }
 
-// Check if running in Tauri environment
 const isTauri = () => typeof window !== 'undefined' && window.__TAURI__ !== undefined;
 
-export function SearchWindow() {
+export function SearchView() {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const { results, search, isLoading } = useSearch();
+  const { navigateToView } = useViewManagerStore();
   const isUserTypingRef = useRef(false);
   const isHidingRef = useRef(false);
 
-  // Limit results to max 10 items for fixed layout
   const limitedResults = results.slice(0, 10);
 
-  // State for recently used apps
   const [recentApps, setRecentApps] = useState<Array<{
     id: string;
     name: string;
@@ -119,13 +113,11 @@ export function SearchWindow() {
     icon?: string;
   }>>([]);
 
-  // Initialize logger on mount
   useEffect(() => {
     if (isTauri()) {
       initLogger();
-      logger.info('SearchWindow', 'Component mounted');
+      logger.info('SearchView', 'Component mounted');
 
-      // Load recently used apps
       invoke('get_recently_used', { limit: 10 })
         .then((response: { apps: Array<{ id: string; name: string; executable_path: string; icon?: string }> }) => {
           setRecentApps(response.apps);
@@ -136,7 +128,6 @@ export function SearchWindow() {
     }
   }, []);
 
-  // Auto-focus input on mount and window show
   useEffect(() => {
     const focusInput = () => {
       if (document.activeElement !== inputRef.current && !isUserTypingRef.current) {
@@ -158,7 +149,6 @@ export function SearchWindow() {
     }
   }, []);
 
-  // Reset typing flag after user stops typing
   useEffect(() => {
     if (!isUserTypingRef.current) return;
 
@@ -169,21 +159,18 @@ export function SearchWindow() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Handle search with debounce (increased for smoother typing)
   useEffect(() => {
     const timer = setTimeout(() => {
       search(query);
-    }, 200); // Increased from 150ms to 200ms for better typing experience
+    }, 200);
 
     return () => clearTimeout(timer);
   }, [query, search]);
 
-  // Reset selection when query changes
   useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
 
-  // Keyboard navigation
   const handleKeyDown = async (e: React.KeyboardEvent) => {
     switch (e.key) {
       case 'ArrowDown':
@@ -213,17 +200,15 @@ export function SearchWindow() {
     }
   };
 
-  // Handle result selection
   const handleSelect = async (result: SearchResult) => {
     if (!result.action) {
-      logger.error('SearchWindow', 'No action defined for result:', result);
+      logger.error('SearchView', 'No action defined for result:', result);
       return;
     }
 
     try {
       await result.action();
 
-      // Track usage if it's an app
       if (result.type === 'app' && isTauri()) {
         try {
           await invoke('track_app_usage', { appId: result.id });
@@ -233,8 +218,6 @@ export function SearchWindow() {
       }
 
       isHidingRef.current = true;
-
-      // Hide window and clear state
       await hideWindow();
       setQuery('');
 
@@ -252,7 +235,6 @@ export function SearchWindow() {
     }
   };
 
-  // Hide window
   const hideWindow = async () => {
     if (isTauri()) {
       try {
@@ -263,12 +245,21 @@ export function SearchWindow() {
     }
   };
 
-  // Handle result item click
   const handleResultClick = useCallback(async (index: number) => {
     if (limitedResults[index]) {
       await handleSelect(limitedResults[index]);
     }
   }, [limitedResults]);
+
+  const handleSettingsClick = async () => {
+    console.log('[SearchView] ===== 点击设置按钮 =====');
+    console.log('[SearchView] 参数: skipResize = true (保持窗口大小)');
+    try {
+      await navigateToView('settings', true); // true = skip resize
+    } catch (error) {
+      console.error('[SearchView] Failed to navigate to settings:', error);
+    }
+  };
 
   return (
     <div
@@ -278,7 +269,6 @@ export function SearchWindow() {
       aria-label="应用程序启动器搜索窗口"
     >
       <div className="search-container">
-        {/* Search Input */}
         <div className="search-input-section">
           <svg
             className="search-icon"
@@ -321,36 +311,10 @@ export function SearchWindow() {
             aria-activedescendant={selectedIndex >= 0 ? `result-${selectedIndex}` : undefined}
           />
           {isLoading && (
-            <div
-              className="search-spinner"
-              role="status"
-              aria-live="polite"
-              aria-label="正在搜索"
-            >
-              <svg
-                className="spinner"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                  opacity="0.25"
-                />
-                <path
-                  d="M12 2A10 10 0 0 1 22 12"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                  strokeDasharray="32"
-                  strokeDashoffset="32"
-                />
+            <div className="search-spinner" role="status" aria-live="polite" aria-label="正在搜索">
+              <svg className="spinner" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" opacity="0.25" />
+                <path d="M12 2A10 10 0 0 1 22 12" stroke="currentColor" strokeWidth="4" fill="none" strokeDasharray="32" strokeDashoffset="32" />
               </svg>
             </div>
           )}
@@ -365,25 +329,35 @@ export function SearchWindow() {
               aria-label="清除搜索"
               onMouseDown={(e) => e.stopPropagation()}
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-              >
-                <path
-                  d="M12 4L4 12M4 4L12 12"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
             </button>
           )}
-          <SettingsButton />
+          <button
+            className="settings-button"
+            onClick={handleSettingsClick}
+            aria-label="打开设置"
+            type="button"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              className="settings-icon"
+            >
+              <circle cx="10" cy="10" r="3" stroke="currentColor" strokeWidth="1.5" />
+              <path
+                d="M10 2V4M10 16V18M18 10H16M4 10H2M15.66 15.66L14.24 14.24M5.76 5.76L4.34 4.34M15.66 4.34L14.24 5.76M5.76 14.24L4.34 15.66"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
         </div>
 
-        {/* Search Results */}
         {query && limitedResults.length > 0 && (
           <div className="search-results-section">
             <ResultList
@@ -402,7 +376,6 @@ export function SearchWindow() {
           </div>
         )}
 
-        {/* Footer with keyboard shortcuts or default content */}
         {!query && (
           <div className="search-footer" role="note" aria-label="默认内容区域">
             <div className="default-content">

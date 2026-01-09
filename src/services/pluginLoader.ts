@@ -324,6 +324,7 @@ export class PluginLoader {
 
   /**
    * Load built-in plugins and installed npm plugins
+   * Skips plugins that are already loaded to avoid redundant operations
    */
   async loadBuiltInPlugins(): Promise<PluginLoadResult[]> {
     const builtInPlugins = [
@@ -338,6 +339,12 @@ export class PluginLoader {
 
     // 1. Load built-in plugins from src/lib/plugins/
     for (const pluginId of builtInPlugins) {
+      // Skip if already loaded
+      if (this.isLoaded(pluginId)) {
+        console.log(`[PluginLoader] Skipping already loaded plugin: ${pluginId}`);
+        continue;
+      }
+
       try {
         const result = await this.loadPlugin(`../lib/plugins/${pluginId}/index.ts`);
         results.push(result);

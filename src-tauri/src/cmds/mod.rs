@@ -1,10 +1,11 @@
+pub mod abbreviation;
 pub mod app;
 pub mod clipboard;
 pub mod marketplace;
+pub mod performance;
 pub mod plugins;
 pub mod search;
+pub mod search_test;
 pub mod settings;
 pub mod shell;
 pub mod window;
-pub mod performance;
-pub mod abbreviation;

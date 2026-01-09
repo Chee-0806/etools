@@ -1,17 +1,22 @@
 /**
  * SettingsButton - 右侧圆形设置图标按钮
- * 点击打开独立的设置窗口
+ * 点击切换到设置视图（单窗口架构，不调整窗口大小）
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { useViewNavigation } from '@/hooks/useViewNavigation';
 
 export function SettingsButton() {
+  const { navigateTo } = useViewNavigation();
+
   const handleClick = async () => {
     try {
-      console.log('[SettingsButton] Opening settings window');
-      await invoke('show_settings_window');
+      console.log('[SettingsButton] ===== 开始导航到设置页面 =====');
+      console.log('[SettingsButton] 参数: skipResize = true (保持窗口大小)');
+      // 使用前端视图导航，不调整窗口大小
+      await navigateTo('settings', true); // true = skip resize
+      console.log('[SettingsButton] ===== 导航完成 =====');
     } catch (error) {
-      console.error('[SettingsButton] Failed to open settings:', error);
+      console.error('[SettingsButton] 导航失败:', error);
     }
   };
 
