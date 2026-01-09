@@ -36,18 +36,6 @@
 - **源代码**: https://github.com/pmndrs/zustand
 - **说明**: 状态管理库
 
-### TanStack React Query 5.90+
-- **许可证**: MIT License
-- **版权所有**: Tanner Linsley
-- **源代码**: https://github.com/TanStack/query
-- **说明**: 数据同步库
-
-### date-fns 4.1+
-- **许可证**: MIT License
-- **版权所有**: Sasha Koss and Lesha Koss
-- **源代码**: https://github.com/date-fns/date-fns
-- **说明**: 日期处理库
-
 ### color-convert 2.0+
 - **许可证**: MIT License
 - **版权所有**: Heather Arthur
@@ -71,6 +59,32 @@
 - **版权所有**: i18next
 - **源代码**: https://github.com/i18next/i18next
 - **说明**: 国际化库
+
+## 开发工具
+
+### Vitest 4.0+
+- **许可证**: MIT License
+- **版权所有**: Anthony Fu & Matias Capeletto
+- **源代码**: https://github.com/vitest-dev/vitest
+- **说明**: 测试框架
+
+### Testing Library
+- **@testing-library/react**: MIT License - Copyright 2017 Kent C. Dodds
+- **@testing-library/jest-dom**: MIT License - Copyright 2018 Kent C. Dodds
+- **源代码**: https://github.com/testing-library
+- **说明**: React 测试工具
+
+### ESLint 插件
+- **typescript-eslint**: MIT License - Copyright 2023 TypeScript ESLint
+- **eslint-plugin-react-hooks**: MIT License - Copyright 2019 Meta Platforms, Inc.
+- **源代码**: https://github.com/typescript-eslint
+- **说明**: 代码检查工具
+
+### jsdom 27.4+
+- **许可证**: MIT License
+- **版权所有**: jsdom project contributors
+- **源代码**: https://github.com/jsdom/jsdom
+- **说明**: DOM 实现（用于测试）
 
 ## 构建工具
 
@@ -130,4 +144,4 @@
 
 ---
 
-**最后更新**: 2025-01-08
+**最后更新**: 2026-01-09
