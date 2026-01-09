@@ -3,8 +3,9 @@ mod db;
 mod cmds;
 mod models;
 mod services;
+mod types;
 
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, Monitor};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 use cmds::app::{AppState, get_installed_apps, launch_app, track_app_usage, get_app_icon, get_app_icon_nsworkspace, get_recently_used};
 use cmds::search::{SearchState, unified_search, get_search_stats, search_files, search_browser_data, update_browser_cache, index_files, get_file_index_stats, start_file_indexer, stop_file_indexer};
@@ -29,7 +30,7 @@ use cmds::plugins::{
 use cmds::shell::{open_url, get_default_browser};
 use cmds::marketplace::{marketplace_list, marketplace_search, marketplace_install, marketplace_uninstall, marketplace_update, marketplace_check_updates, marketplace_get_plugin, get_installed_plugins};
 use cmds::settings::{get_settings, get_setting, set_setting, update_settings, reset_settings, init_preferences, get_hotkey, set_hotkey, check_hotkey_conflicts, get_settings_file_path};
-use cmds::window::{save_window_state, restore_window_state, get_window_info, set_always_on_top, set_window_size, get_window_size, write_debug_log, center_window};
+use cmds::window::{get_screen_info, resize_window_smart};
 use cmds::performance::{PerformanceState, get_performance_metrics, check_performance_requirements, record_performance_event, get_average_search_time};
 use cmds::abbreviation::{get_abbreviation_config, save_abbreviation_config, add_abbreviation, update_abbreviation, delete_abbreviation, export_abbreviation_config, import_abbreviation_config};
 
@@ -161,109 +162,35 @@ fn toggle_window(window: tauri::Window) -> Result<(), String> {
     Ok(())
 }
 
-// Show settings window
+// Show settings window - 已废弃，现在使用单窗口架构
+// 保留此命令以避免破坏现有代码，但不再执行任何操作
 #[tauri::command]
-fn show_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(settings_window) = app.get_webview_window("settings") {
-        // Center settings window on screen
-        let monitor = settings_window.current_monitor()
-            .map_err(|e| e.to_string())?
-            .ok_or("No monitor found")?;
-
-        let screen_size = monitor.size();
-        let window_size = settings_window.outer_size().map_err(|e| e.to_string())?;
-
-        // Calculate center position
-        let x = (screen_size.width as i32 - window_size.width as i32) / 2;
-        let y = (screen_size.height as i32 - window_size.height as i32) / 2;
-
-        settings_window
-            .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
-            .map_err(|e| e.to_string())?;
-
-        // Hide main window
-        if let Some(main_window) = app.get_webview_window("main") {
-            let _ = main_window.hide();
-        }
-
-        // Show settings window
-        settings_window.show().map_err(|e| e.to_string())?;
-        settings_window.set_focus().map_err(|e| e.to_string())?;
-    }
+fn show_settings_window(_app: tauri::AppHandle) -> Result<(), String> {
+    println!("show_settings_window called - this command is deprecated in single-window architecture");
     Ok(())
 }
 
-// Hide settings window
+// Hide settings window - 已废弃，现在使用单窗口架构
+// 保留此命令以避免破坏现有代码，但不再执行任何操作
 #[tauri::command]
-fn hide_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-    // Hide settings window
-    if let Some(settings_window) = app.get_webview_window("settings") {
-        settings_window.hide().map_err(|e| e.to_string())?;
-    }
-
-    // Show main window
-    if let Some(main_window) = app.get_webview_window("main") {
-        main_window.show().map_err(|e| e.to_string())?;
-        main_window.set_focus().map_err(|e| e.to_string())?;
-    }
-
+fn hide_settings_window(_app: tauri::AppHandle) -> Result<(), String> {
+    println!("hide_settings_window called - this command is deprecated in single-window architecture");
     Ok(())
 }
 
-// Show plugin popup - universal popup for all plugins
+// Show plugin popup - 已废弃，现在使用单窗口架构
+// 保留此命令以避免破坏现有代码，但不再执行任何操作
 #[tauri::command]
-fn show_plugin_popup(app: tauri::AppHandle, data: serde_json::Value) -> Result<(), String> {
-    if let Some(popup_window) = app.get_webview_window("plugin-popup") {
-        // Emit popup data to window
-        popup_window.emit("plugin-popup", &data).map_err(|e| e.to_string())?;
-
-        // Center popup window on screen
-        let monitor = popup_window.current_monitor()
-            .map_err(|e| e.to_string())?
-            .ok_or("No monitor found")?;
-
-        let screen_size = monitor.size();
-        let window_size = popup_window.outer_size().map_err(|e| e.to_string())?;
-
-        // Calculate center position
-        let x = (screen_size.width as i32 - window_size.width as i32) / 2;
-        let y = (screen_size.height as i32 - window_size.height as i32) / 2;
-
-        popup_window
-            .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
-            .map_err(|e| e.to_string())?;
-
-        // Hide main and results windows
-        if let Some(main_window) = app.get_webview_window("main") {
-            let _ = main_window.hide();
-        }
-        if let Some(results_window) = app.get_webview_window("results") {
-            let _ = results_window.hide();
-        }
-
-        // Show popup window
-        popup_window.show().map_err(|e| e.to_string())?;
-        popup_window.set_focus().map_err(|e| e.to_string())?;
-    } else {
-        return Err("Plugin popup window not found".to_string());
-    }
+fn show_plugin_popup(_app: tauri::AppHandle, _data: serde_json::Value) -> Result<(), String> {
+    println!("show_plugin_popup called - this command is deprecated in single-window architecture");
     Ok(())
 }
 
-// Hide plugin popup
+// Hide plugin popup - 已废弃，现在使用单窗口架构
+// 保留此命令以避免破坏现有代码，但不再执行任何操作
 #[tauri::command]
-fn hide_plugin_popup(app: tauri::AppHandle) -> Result<(), String> {
-    // Hide popup window
-    if let Some(popup_window) = app.get_webview_window("plugin-popup") {
-        popup_window.hide().map_err(|e| e.to_string())?;
-    }
-
-    // Show main window
-    if let Some(main_window) = app.get_webview_window("main") {
-        main_window.show().map_err(|e| e.to_string())?;
-        main_window.set_focus().map_err(|e| e.to_string())?;
-    }
-
+fn hide_plugin_popup(_app: tauri::AppHandle) -> Result<(), String> {
+    println!("hide_plugin_popup called - this command is deprecated in single-window architecture");
     Ok(())
 }
 
@@ -277,7 +204,7 @@ fn hide_window(window: tauri::Window) -> Result<(), String> {
 // Show window
 #[tauri::command]
 fn show_window(window: tauri::Window) -> Result<(), String> {
-    // Just center the window without changing size
+    // 获取当前显示器信息
     let monitor = window.current_monitor()
         .map_err(|e| e.to_string())?
         .ok_or("No monitor found")?;
@@ -285,15 +212,25 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
     let screen_size = monitor.size();
     let window_size = window.outer_size().map_err(|e| e.to_string())?;
 
-    // Calculate center position
+    // 计算居中位置
     let x = (screen_size.width as i32 - window_size.width as i32) / 2;
     let y = (screen_size.height as i32 - window_size.height as i32) / 2;
 
+    println!("[show_window] Screen size: {}x{}, Window size: {}x{}, Position: ({}, {})",
+        screen_size.width, screen_size.height,
+        window_size.width, window_size.height,
+        x, y
+    );
+
+    // 强制设置窗口位置
     window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
         .map_err(|e| e.to_string())?;
 
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
+
+    println!("[show_window] Window shown and focused at ({}, {})", x, y);
+
     Ok(())
 }
 
@@ -389,19 +326,119 @@ pub fn run() {
                     let _ = window_clone.hide();
                     println!("[GlobalShortcut] Window hidden");
                 } else {
-                    // Just center the window without changing size
-                    if let Ok(Some(monitor)) = window_clone.current_monitor() {
-                        let screen_size = monitor.size();
-                        if let Ok(window_size) = window_clone.outer_size() {
-                            // Calculate center position
-                            let x = (screen_size.width as i32 - window_size.width as i32) / 2;
-                            let y = (screen_size.height as i32 - window_size.height as i32) / 2;
+                    // 显示窗口前先定位到鼠标所在屏幕的中心偏上位置
+                    let window_width = 800u32;
+                    let window_height = 600u32;
+
+                    use tauri::Manager;
+
+                    // 获取鼠标位置
+                    if let Ok(cursor_pos) = window_clone.cursor_position() {
+                        let cursor_x = cursor_pos.x as i32;
+                        let cursor_y = cursor_pos.y as i32;
+
+                        println!("[GlobalShortcut] Cursor position: ({}, {})", cursor_x, cursor_y);
+
+                        // 遍历所有显示器，找到包含鼠标位置的显示器
+                        let target_monitor = window_clone.available_monitors()
+                            .ok()
+                            .and_then(|monitors| {
+                                monitors.into_iter().find(|monitor| {
+                                    let monitor_pos = monitor.position();
+                                    let monitor_size = monitor.size();
+
+                                    let monitor_x = monitor_pos.x as i32;
+                                    let monitor_y = monitor_pos.y as i32;
+                                    let monitor_width = monitor_size.width as i32;
+                                    let monitor_height = monitor_size.height as i32;
+
+                                    // 检查鼠标是否在该显示器范围内
+                                    cursor_x >= monitor_x &&
+                                        cursor_x < monitor_x + monitor_width &&
+                                        cursor_y >= monitor_y &&
+                                        cursor_y < monitor_y + monitor_height
+                                })
+                            });
+
+                        if let Some(monitor) = target_monitor {
+                            let monitor_pos = monitor.position();
+                            let monitor_size = monitor.size();
+
+                            let monitor_x = monitor_pos.x as i32;
+                            let monitor_y = monitor_pos.y as i32;
+                            let monitor_width = monitor_size.width as i32;
+                            let monitor_height = monitor_size.height as i32;
+
+                            // 计算显示器的中心位置
+                            let center_x = monitor_x + monitor_width / 2;
+                            let center_y = monitor_y + monitor_height / 2;
+
+                            // 窗口中心点向上偏移（显示器高度的 1/15），更符合人体工学
+                            let offset_y = monitor_height / 15;
+                            let target_center_x = center_x;
+                            let target_center_y = center_y - offset_y;
+
+                            // 获取窗口实际尺寸（考虑 DPI 缩放）
+                            let actual_size = match window_clone.outer_size() {
+                                Ok(size) => {
+                                    println!("[GlobalShortcut] Got actual window size: {}x{}", size.width, size.height);
+                                    (size.width as i32, size.height as i32)
+                                }
+                                Err(_) => {
+                                    println!("[GlobalShortcut] Failed to get window size, using expected size");
+                                    (window_width as i32, window_height as i32)
+                                }
+                            };
+
+                            let actual_width = actual_size.0;
+                            let actual_height = actual_size.1;
+
+                            // 使用实际窗口尺寸计算位置
+                            // 窗口中心点对准 (target_center_x, target_center_y)
+                            // 窗口左上角 = (target_center_x - actual_width/2, target_center_y - actual_height/2)
+                            let x = target_center_x - actual_width / 2;
+                            let y = target_center_y - actual_height / 2;
+
+                            println!("[GlobalShortcut] Found monitor: {}x{} at ({}, {})", monitor_width, monitor_height, monitor_x, monitor_y);
+                            println!("[GlobalShortcut] Monitor center: ({}, {})", center_x, center_y);
+                            println!("[GlobalShortcut] Target center (offset -{}): ({}, {})", offset_y, target_center_x, target_center_y);
+                            println!("[GlobalShortcut] Actual window size: {}x{}", actual_width, actual_height);
+                            println!("[GlobalShortcut] Window position (top-left): ({}, {})", x, y);
+                            println!("[GlobalShortcut] Window center: ({}, {})", x + actual_width / 2, y + actual_height / 2);
 
                             let _ = window_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
-                            println!("[GlobalShortcut] Centered window at: ({}, {})", x, y);
+                        } else {
+                            println!("[GlobalShortcut] ✗ No monitor found, using current_monitor as fallback");
+                            // 回退到 current_monitor
+                            match window_clone.current_monitor() {
+                                Ok(Some(monitor)) => {
+                                    let monitor_pos = monitor.position();
+                                    let monitor_size = monitor.size();
+
+                                    let monitor_x = monitor_pos.x as i32;
+                                    let monitor_y = monitor_pos.y as i32;
+                                    let monitor_width = monitor_size.width as i32;
+                                    let monitor_height = monitor_size.height as i32;
+
+                                    let center_x = monitor_x + monitor_width / 2;
+                                    let center_y = monitor_y + monitor_height / 2;
+
+                                    let x = center_x - window_width as i32 / 2;
+                                    let y = center_y - window_height as i32 / 2;
+
+                                    println!("[GlobalShortcut] Fallback monitor: {}x{} at ({}, {})", monitor_width, monitor_height, monitor_x, monitor_y);
+                                    println!("[GlobalShortcut] Fallback center: ({}, {}), Window: ({}, {})", center_x, center_y, x, y);
+
+                                    let _ = window_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+                                }
+                                _ => {
+                                    let _ = window_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x: 100, y: 100 }));
+                                }
+                            }
                         }
                     }
 
+                    // 显示窗口
                     let _ = window_clone.show();
                     let _ = window_clone.set_focus();
                     println!("[GlobalShortcut] Window shown and focused");
@@ -429,14 +466,8 @@ pub fn run() {
             hide_settings_window,
             show_plugin_popup,
             hide_plugin_popup,
-            save_window_state,
-            restore_window_state,
-            get_window_info,
-            set_always_on_top,
-            set_window_size,
-            get_window_size,
-            center_window,
-            write_debug_log,
+            get_screen_info,
+            resize_window_smart,
             // App commands
             get_installed_apps,
             launch_app,

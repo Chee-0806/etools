@@ -108,22 +108,22 @@ const PluginManager: React.FC<PluginManagerProps> = ({
 
       {/* Content */}
       <div className="plugin-manager-content" role="presentation">
-        {currentView === 'installed' && (
-          <div
-            role="tabpanel"
-            id="panel-installed"
-            aria-labelledby="tab-installed"
-            tabIndex={0}
-          >
-            <InstalledPluginsView />
-          </div>
-        )}
-        {currentView === 'marketplace' && showMarketplace && (
+        <div
+          role="tabpanel"
+          id="panel-installed"
+          aria-labelledby="tab-installed"
+          tabIndex={0}
+          style={{ display: currentView === 'installed' ? 'block' : 'none' }}
+        >
+          <InstalledPluginsView />
+        </div>
+        {showMarketplace && (
           <div
             role="tabpanel"
             id="panel-marketplace"
             aria-labelledby="tab-marketplace"
             tabIndex={0}
+            style={{ display: currentView === 'marketplace' ? 'block' : 'none' }}
           >
             <MarketplaceView />
           </div>
