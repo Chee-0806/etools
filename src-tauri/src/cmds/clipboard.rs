@@ -240,3 +240,18 @@ fn get_clipboard_db_path(handle: &AppHandle) -> Result<String, String> {
         .ok_or("Invalid path")?
         .to_string())
 }
+
+/// Write text directly to system clipboard
+/// Used by plugins to copy text results
+#[tauri::command]
+pub fn write_clipboard_text(text: String) -> Result<(), String> {
+    use arboard::Clipboard;
+
+    let mut clipboard = Clipboard::new()
+        .map_err(|e| format!("Failed to access system clipboard: {}", e))?;
+
+    clipboard.set_text(&text)
+        .map_err(|e| format!("Failed to set clipboard text: {}", e))?;
+
+    Ok(())
+}

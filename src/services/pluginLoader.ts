@@ -8,10 +8,31 @@
 
 import type { Plugin, PluginManifest } from '@/types/plugin';
 import type { PluginPermission } from '@/lib/plugin-sdk/types';
-import type { PluginSearchResultV2, PluginActionData } from '@/lib/plugin-sdk/v2-types';
+import type { PluginSearchResult } from '@/lib/plugin-sdk/types';
 import { invoke } from '@tauri-apps/api/core';
 import { getPluginSandbox } from './pluginSandbox';
-import { ActionExecutor, createActionFromData } from './actionExecutor';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** Path prefix for built-in plugins */
+const BUILTIN_PLUGIN_PREFIX = '../lib/plugins/';
+
+/** Vite absolute path prefix for built-in plugins */
+const BUILTIN_PLUGIN_VITE_PREFIX = '/src/lib/plugins/';
+
+/** Plugin file extension */
+const PLUGIN_FILE_EXTENSION = '/index.ts';
+
+/** Maximum clipboard preview length */
+const CLIPBOARD_PREVIEW_MAX_LENGTH = 50;
+
+/** Plugin source indicators in file paths */
+const PLUGIN_SOURCE_INDICATORS = {
+  applicationSupport: 'Application Support',
+  nodeModules: 'node_modules',
+} as const;
 
 /**
  * Permission mapping for Tauri commands (T006, T047)
@@ -27,6 +48,78 @@ const PERMISSION_MAP: Record<string, PluginPermission> = {
   'send_notification': 'notifications',
 };
 
+/** Valid plugin sources for loading from backend */
+const VALID_PLUGIN_SOURCES = ['marketplace', 'local'] as const;
+
+/** Built-in plugin IDs */
+const BUILTIN_PLUGIN_IDS = [
+  'hello-world',
+  'timestamp',
+  'json-formatter',
+  'regex-tester',
+  'sandbox-demo',
+] as const;
+
+/** Unknown plugin manifest fallback */
+const UNKNOWN_MANIFEST: PluginManifest = {
+  id: 'unknown',
+  name: 'Unknown',
+  version: '0.0.0',
+  description: 'Failed to load',
+  author: 'Unknown',
+  permissions: [],
+  triggers: [],
+};
+
+// ============================================================================
+// Types
+// ============================================================================
+
+/**
+ * Raw plugin module interface
+ * Represents the structure of a plugin module before normalization
+ */
+interface RawPluginModule {
+  manifest?: PluginManifest;
+  search?: (query: string) => PluginSearchResult[] | Promise<PluginSearchResult[]>;
+  onSearch?: (query: string) => PluginSearchResult[] | Promise<PluginSearchResult[]>;
+  executeAction?: (actionData: unknown) => unknown;
+}
+
+/**
+ * Plugin module with default export
+ */
+interface ModuleWithDefault {
+  default?: RawPluginModule;
+  manifest?: PluginManifest;
+  search?: RawPluginModule['search'];
+  onSearch?: RawPluginModule['onSearch'];
+  executeAction?: RawPluginModule['executeAction'];
+}
+
+/**
+ * Plugin load result
+ */
+export interface PluginLoadResult {
+  manifest: PluginManifest;
+  plugin?: Plugin;
+  error?: string;
+}
+
+/**
+ * Plugin info from backend
+ */
+interface BackendPluginInfo {
+  id: string;
+  install_path?: string;
+  source: string;
+  enabled: boolean;
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
 /**
  * Check if plugin has required permission for a command (T047)
  */
@@ -36,77 +129,249 @@ function hasPermission(permissions: PluginPermission[], cmd: string): boolean {
 }
 
 /**
+ * Extract plugin from module, supporting both default and named exports
+ */
+function extractPluginFromModule(module: ModuleWithDefault): RawPluginModule {
+  // Default export: export default { manifest, onSearch, executeAction }
+  if (module.default && typeof module.default === 'object') {
+    return module.default;
+  }
+  // Named exports: export const manifest = {...}; export function onSearch() {...}
+  return {
+    manifest: module.manifest,
+    search: module.onSearch ?? module.search,
+    executeAction: module.executeAction,
+  };
+}
+
+/**
+ * Normalize module path for Vite dynamic import
+ */
+function normalizeModulePath(modulePath: string): string {
+  // Built-in plugin: Convert relative path to absolute for Vite
+  if (modulePath.startsWith(BUILTIN_PLUGIN_PREFIX)) {
+    const parts = modulePath.split('/').filter(Boolean);
+    const pluginId = parts[parts.length - 2];
+    return `${BUILTIN_PLUGIN_VITE_PREFIX}${pluginId}${PLUGIN_FILE_EXTENSION}`;
+  }
+
+  // npm or local plugin: Return as-is (will be converted to blob URL later)
+  return modulePath;
+}
+
+/**
+ * Check if path is for an npm/local plugin (requires blob loading)
+ */
+function isNpmPluginPath(path: string): boolean {
+  return path.includes(PLUGIN_SOURCE_INDICATORS.applicationSupport) ||
+         path.includes(PLUGIN_SOURCE_INDICATORS.nodeModules);
+}
+
+/**
+ * Create a blob URL from file content for dynamic import
+ */
+async function createBlobUrlFromPath(filePath: string): Promise<string> {
+  const fileContent = await invoke<string>('read_file', { path: filePath });
+  const blob = new Blob([fileContent], { type: 'application/javascript' });
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Truncate text to maximum length with ellipsis
+ */
+function truncateText(text: string, maxLength: number): string {
+  return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
+}
+
+/**
+ * Create error manifest for failed plugin load
+ */
+function createErrorManifest(
+  pluginId: string,
+  error: string
+): PluginManifest {
+  return {
+    id: pluginId,
+    name: pluginId,
+    version: '0.0.0',
+    description: 'Failed to load',
+    author: 'Unknown',
+    permissions: [],
+    triggers: [],
+  };
+}
+
+/**
+ * Create error load result
+ */
+function createErrorResult(
+  pluginId: string,
+  errorMessage: string
+): PluginLoadResult {
+  return {
+    manifest: createErrorManifest(pluginId, errorMessage),
+    error: errorMessage,
+  };
+}
+
+/**
+ * Validate plugin manifest
+ */
+function validateManifest(manifest: PluginManifest | undefined): manifest is PluginManifest {
+  if (!manifest) {
+    throw new Error('Plugin manifest is missing');
+  }
+
+  const requiredFields = ['id', 'name', 'version'] as const;
+  for (const field of requiredFields) {
+    if (!manifest[field]) {
+      throw new Error(`Plugin manifest missing required field: ${field}`);
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Check if plugin source is valid for loading
+ */
+function isValidPluginSource(source: string): boolean {
+  return VALID_PLUGIN_SOURCES.includes(source as typeof VALID_PLUGIN_SOURCES[number]);
+}
+
+/**
+ * Get log prefix for plugin
+ */
+function logPrefix(pluginId: string): string {
+  return `[PluginLoader:${pluginId}]`;
+}
+
+// ============================================================================
+// Action Wrapping
+// ============================================================================
+
+/**
+ * Create a wrapped action function that handles execution and clipboard output
+ */
+function createWrappedAction(
+  rawPlugin: RawPluginModule,
+  pluginId: string,
+  result: { id: string; actionData: unknown }
+): () => Promise<void> {
+  return async () => {
+    console.log(`${logPrefix(pluginId)} Executing action for ${result.id}`);
+
+    if (typeof rawPlugin.executeAction !== 'function') {
+      console.warn(`${logPrefix(pluginId)} Missing executeAction function`);
+      return;
+    }
+
+    try {
+      const output = await rawPlugin.executeAction(result.actionData);
+
+      // Copy string output to clipboard
+      if (typeof output === 'string') {
+        await invoke('write_clipboard_text', { text: output });
+        const preview = truncateText(output, CLIPBOARD_PREVIEW_MAX_LENGTH);
+        console.log(`${logPrefix(pluginId)} Copied to clipboard: ${preview}`);
+      } else {
+        console.log(`${logPrefix(pluginId)} Action executed (no clipboard output)`);
+      }
+    } catch (error) {
+      console.error(`${logPrefix(pluginId)} Action execution failed:`, error);
+      throw error;
+    }
+  };
+}
+
+/**
+ * Wrap plugin search function to auto-convert actionData to executable actions
+ */
+function wrapPluginActions(
+  plugin: Plugin,
+  rawPlugin: RawPluginModule,
+  pluginId: string
+): Plugin {
+  const originalSearch = rawPlugin.search ?? rawPlugin.onSearch;
+
+  return {
+    ...plugin,
+    search: async (query: string) => {
+      console.log(`${logPrefix(pluginId)} Calling search with query: ${query}`);
+
+      const results = await originalSearch(query);
+      const resultCount = Array.isArray(results) ? results.length : 0;
+      console.log(`${logPrefix(pluginId)} Returned ${resultCount} results`);
+
+      // Convert actionData to action functions if present
+      if (Array.isArray(results) && resultCount > 0 && 'actionData' in results[0]) {
+        console.log(`${logPrefix(pluginId)} Converting actionData to action`);
+        return results.map((result) => ({
+          ...result,
+          action: createWrappedAction(rawPlugin, pluginId, result),
+        }));
+      }
+
+      return results;
+    },
+  };
+}
+
+// ============================================================================
+// Restricted API
+// ============================================================================
+
+/**
  * Restricted API wrapper for plugins (T048)
  * Wraps Tauri invoke calls with permission checking
  */
-export function createRestrictedAPI(pluginId: string, permissions: PluginPermission[]) {
+export function createRestrictedAPI(
+  pluginId: string,
+  permissions: PluginPermission[]
+) {
+  const apiInvoke = async (cmd: string, args?: Record<string, unknown>) => {
+    if (!hasPermission(permissions, cmd)) {
+      throw new Error(`Plugin ${pluginId} lacks required permission for ${cmd}`);
+    }
+
+    console.log(`[PluginAPI] ${pluginId} invoking ${cmd}`, args);
+    return invoke(cmd, args);
+  };
+
   return {
-    invoke: async (cmd: string, args?: Record<string, unknown>) => {
-      // Check permission before invoking command
-      if (!hasPermission(permissions, cmd)) {
-        throw new Error(`Plugin ${pluginId} lacks required permission for ${cmd}`);
-      }
-
-      // Log the API call for audit
-      console.log(`[PluginAPI] ${pluginId} invoking ${cmd}`, args);
-
-      // Invoke the actual Tauri command
-      return invoke(cmd, args);
-    },
-
+    invoke: apiInvoke,
     clipboard: {
-      getHistory: (limit?: number) => {
-        return createRestrictedAPI(pluginId, permissions).invoke('get_clipboard_history', { limit });
-      },
-      paste: (id: string) => {
-        return createRestrictedAPI(pluginId, permissions).invoke('paste_clipboard_item', { id });
-      },
+      getHistory: (limit?: number) => apiInvoke('get_clipboard_history', { limit }),
+      paste: (id: string) => apiInvoke('paste_clipboard_item', { id }),
     },
-
     file: {
-      read: (path: string) => {
-        return createRestrictedAPI(pluginId, permissions).invoke('read_file', { path });
-      },
-      write: (path: string, content: string) => {
-        return createRestrictedAPI(pluginId, permissions).invoke('write_file', { path, content });
-      },
+      read: (path: string) => apiInvoke('read_file', { path }),
+      write: (path: string, content: string) => apiInvoke('write_file', { path, content }),
     },
-
     shell: {
-      execute: (command: string) => {
-        return createRestrictedAPI(pluginId, permissions).invoke('execute_shell', { command });
-      },
+      execute: (command: string) => apiInvoke('execute_shell', { command }),
     },
-
     network: {
       request: async (url: string, options?: RequestInit) => {
-        // Network requests use fetch directly
-        // NOTE: 这是插件的受限 API，允许插件发起网络请求
-        // TODO: 未来应该通过后端命令 plugin_http_request 实现，以遵循架构原则
-        // 但需要先在后端实现相应的命令
         if (!permissions.includes('network')) {
           throw new Error(`Plugin ${pluginId} lacks network permission`);
         }
         return fetch(url, options);
       },
     },
-
     notification: {
-      send: (title: string, body: string) => {
-        return createRestrictedAPI(pluginId, permissions).invoke('send_notification', { title, body });
-      },
+      send: (title: string, body: string) => apiInvoke('send_notification', { title, body }),
     },
   };
 }
 
-export interface PluginLoadResult {
-  manifest: PluginManifest;
-  plugin?: Plugin;
-  error?: string;
-}
+// ============================================================================
+// Plugin Loader Class
+// ============================================================================
 
 /**
  * Plugin Loader class
+ * Manages plugin discovery, loading, and lifecycle
  */
 export class PluginLoader {
   private loadedPlugins = new Map<string, Plugin>();
@@ -114,112 +379,115 @@ export class PluginLoader {
 
   /**
    * Load a plugin from a module
-   * Supports both built-in plugins (src/lib/plugins/) and npm plugins (node_modules/@etools-plugin/*)
+   * Supports built-in plugins (src/lib/plugins/) and npm plugins
    */
   async loadPlugin(modulePath: string): Promise<PluginLoadResult> {
     try {
-      console.log(`[PluginLoader] Loading plugin from: ${modulePath}`);
+      console.log(`${logPrefix('Loader')} Loading from: ${modulePath}`);
 
-      // Normalize the module path for both main thread and Worker execution
-      let normalizedPath = modulePath;
-      let useBlobUrl = false;
+      let normalizedPath = normalizeModulePath(modulePath);
 
-      if (modulePath.startsWith('../lib/plugins/')) {
-        // Built-in plugin: Convert relative path to absolute for Vite
-        // Extract plugin ID from path like "../lib/plugins/hello-world/index.ts"
-        const parts = modulePath.split('/').filter(Boolean);
-        const pluginId = parts[parts.length - 2]; // Get second-to-last part
-        normalizedPath = `/src/lib/plugins/${pluginId}/index.ts`;
-        console.log(`[PluginLoader] Built-in plugin path: ${normalizedPath}`);
-      } else if (modulePath.includes('Application Support') || modulePath.includes('node_modules/@etools-plugin')) {
-        // npm plugin from system directory: Use Tauri API to read file
-        console.log(`[PluginLoader] Detected system directory plugin, using Tauri API`);
-
-        // Read file content using Tauri API
-        const fileContent = await invoke<string>('read_file', { path: modulePath });
-        console.log(`[PluginLoader] Read plugin file: ${fileContent.length} bytes`);
-
-        // Create Blob URL for the plugin code
-        const blob = new Blob([fileContent], { type: 'application/javascript' });
-        normalizedPath = URL.createObjectURL(blob);
-        useBlobUrl = true;
-        console.log(`[PluginLoader] Created Blob URL: ${normalizedPath}`);
-      } else if (modulePath.startsWith('@etools-plugin/')) {
-        // npm plugin: Extract package name and convert to node_modules path
-        const packageName = modulePath.split('@etools-plugin/')[1]?.split('/')[0];
-        normalizedPath = `/node_modules/@etools-plugin/${packageName}/dist/index.js`;
-        console.log(`[PluginLoader] NPM plugin path: ${normalizedPath}`);
+      // For npm plugins, read file and create blob URL
+      if (isNpmPluginPath(modulePath)) {
+        console.log(`${logPrefix('Loader')} Detected npm plugin`);
+        normalizedPath = await createBlobUrlFromPath(modulePath);
+        console.log(`${logPrefix('Loader')} Created module URL`);
       }
 
       // Dynamic import of plugin module
-      console.log(`[PluginLoader] Attempting to import: ${normalizedPath}`);
+      console.log(`${logPrefix('Loader')} Importing: ${normalizedPath}`);
       const module = await import(/* @vite-ignore */ normalizedPath);
+      const rawPlugin = extractPluginFromModule(module);
 
-      // Support both default export and named exports
-      // - Default export: export default { manifest, search }
-      // - Named exports: export const manifest = {...}; export async function search() {...}
-      const plugin: Plugin = module.default || {
-        manifest: module.manifest,
-        search: module.search,
+      // Normalize plugin: ensure search property exists
+      const plugin: Plugin = {
+        ...rawPlugin,
+        search: rawPlugin.search ?? rawPlugin.onSearch,
       };
 
-      // Validate plugin structure
-      if (!plugin.manifest) {
-        throw new Error('Plugin missing manifest');
-      }
-
+      validateManifest(plugin.manifest);
       const { manifest } = plugin;
 
-      // Validate manifest
-      if (!manifest.id || !manifest.name || !manifest.version) {
-        throw new Error('Plugin manifest missing required fields');
-      }
+      // Wrap search function to auto-convert actionData to action
+      const wrappedPlugin = wrapPluginActions(plugin, rawPlugin, manifest.id);
 
-      // Register plugin with SDK
-      // TODO: await pluginSDK.register(plugin);
-
-      // Store plugin
-      this.loadedPlugins.set(manifest.id, plugin);
+      this.loadedPlugins.set(manifest.id, wrappedPlugin);
       this.pluginManifests.set(manifest.id, manifest);
 
-      // Register plugin with sandbox (T094)
-      // Pass the normalized module path for true Worker isolation
-      getPluginSandbox().registerPlugin(
-        manifest.id,
-        manifest.permissions,
-        normalizedPath // Use normalized path for Worker execution
-      );
+      // Register plugin with sandbox for permission management
+      getPluginSandbox().registerPlugin(manifest.id, manifest.permissions);
 
-      console.log(`[PluginLoader] Loaded plugin: ${manifest.id} v${manifest.version} with path: ${normalizedPath}`);
+      console.log(`${logPrefix('Loader')} Loaded: ${manifest.id} v${manifest.version}`);
 
-      return { manifest, plugin };
+      return { manifest, plugin: wrappedPlugin };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[PluginLoader] Failed to load plugin from ${modulePath}:`, errorMessage);
+      console.error(`${logPrefix('Loader')} Failed to load from ${modulePath}:`, errorMessage);
 
       return {
-        manifest: {
-          id: 'unknown',
-          name: 'Unknown',
-          version: '0.0.0',
-          description: 'Failed to load',
-          author: 'Unknown',
-          permissions: [],
-          triggers: [],
-        },
-        plugin: null as any,
+        manifest: UNKNOWN_MANIFEST,
         error: errorMessage,
       };
     }
   }
 
   /**
-   * Load an npm-installed plugin by package name
-   * @param packageName - npm package name (e.g., "@etools-plugin/hello")
+   * Load all installed npm plugins
    */
-  async loadNpmPlugin(packageName: string): Promise<PluginLoadResult> {
-    console.log(`[PluginLoader] Loading npm plugin: ${packageName}`);
-    return this.loadPlugin(packageName);
+  async loadInstalledNpmPlugins(): Promise<PluginLoadResult[]> {
+    try {
+      const installedPlugins = await invoke<BackendPluginInfo[]>('get_installed_plugins');
+      console.log(`${logPrefix('Loader')} Found ${installedPlugins.length} plugins from backend`);
+
+      const results: PluginLoadResult[] = [];
+
+      for (const pluginInfo of installedPlugins) {
+        if (!isValidPluginSource(pluginInfo.source)) {
+          console.log(`${logPrefix('Loader')} Skipping (invalid source): ${pluginInfo.id}`);
+          continue;
+        }
+
+        const result = await this.loadSingleNpmPlugin(pluginInfo);
+        results.push(result);
+      }
+
+      return results;
+    } catch (error) {
+      console.error(`${logPrefix('Loader')} Failed to load installed plugins:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Load a single npm plugin from backend info
+   */
+  private async loadSingleNpmPlugin(
+    pluginInfo: BackendPluginInfo
+  ): Promise<PluginLoadResult> {
+    const { id: packageName, install_path: installPath = '', enabled } = pluginInfo;
+
+    if (!packageName) {
+      return createErrorResult('unknown', 'Plugin ID is missing');
+    }
+
+    console.log(`${logPrefix('Loader')} Loading npm plugin: ${packageName} from ${installPath}`);
+    console.log(`${logPrefix('Loader')} Plugin enabled: ${enabled}`);
+
+    try {
+      const result = await this.loadPlugin(installPath);
+
+      // Set plugin enabled state based on backend info
+      if (result.plugin && !enabled) {
+        console.log(`${logPrefix('Loader')} Disabling: ${result.manifest.id}`);
+        getPluginSandbox().setPluginEnabled(result.manifest.id, false);
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`${logPrefix('Loader')} Failed to load ${packageName}:`, error);
+      return createErrorResult(packageName, errorMessage);
+    }
   }
 
   /**
@@ -230,76 +498,31 @@ export class PluginLoader {
   }
 
   /**
-   * Load all installed npm plugins
-   * Queries the backend for list of installed npm packages
+   * Load built-in plugins and installed npm plugins
    */
-  async loadInstalledNpmPlugins(): Promise<PluginLoadResult[]> {
-    try {
-      console.log('[PluginLoader] ===== loadInstalledNpmPlugins called =====');
-      // Get list of installed plugins from backend
-      const installedPlugins = await invoke<any[]>('get_installed_plugins');
-      console.log('[PluginLoader] Retrieved plugins from backend:', installedPlugins.length, installedPlugins);
-      const results: PluginLoadResult[] = [];
+  async loadBuiltInPlugins(): Promise<PluginLoadResult[]> {
+    const results: PluginLoadResult[] = [];
 
-      for (const pluginInfo of installedPlugins) {
-        console.log('[PluginLoader] Processing plugin:', pluginInfo.id, 'source:', pluginInfo.source);
-        // Skip built-in plugins (they're loaded separately)
-        // Load both Marketplace and Local plugins
-        if (pluginInfo.source !== 'marketplace' && pluginInfo.source !== 'local') {
-          console.log('[PluginLoader] Skipping plugin (invalid source):', pluginInfo.id);
-          continue;
-        }
-
-        // npm plugins are installed in app data dir's node_modules
-        // install_path format: "/path/to/app/data/node_modules/@etools-plugin/hello"
-        const installPath = pluginInfo.install_path || '';
-        const packageName = pluginInfo.id; // Should be like "hello-world"
-
-        if (!packageName) {
-          continue;
-        }
-
-        console.log(`[PluginLoader] Loading npm plugin: ${packageName} from ${installPath}`);
-        console.log(`[PluginLoader] Plugin enabled state: ${pluginInfo.enabled}`);
-
-        // For npm plugins, we need to load them from their install path
-        // The plugin should have a dist/index.js file
-        try {
-          // Use the install_path directly - it should point to the plugin directory
-          const entryPoint = `${installPath}/dist/index.js`;
-          const result = await this.loadPlugin(entryPoint);
-
-          // Set plugin enabled state based on backend info
-          if (result.plugin && !pluginInfo.enabled) {
-            console.log(`[PluginLoader] Disabling plugin: ${packageName}`);
-            const { getPluginSandbox } = await import('./pluginSandbox');
-            getPluginSandbox().setPluginEnabled(packageName, false);
-          }
-
-          results.push(result);
-        } catch (error) {
-          console.error(`[PluginLoader] Failed to load npm plugin ${packageName}:`, error);
-          results.push({
-            manifest: {
-              id: packageName,
-              name: packageName,
-              version: '0.0.0',
-              description: 'Failed to load',
-              author: 'Unknown',
-              permissions: [],
-              triggers: [],
-            },
-            plugin: null as any,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+    // Load built-in plugins
+    for (const pluginId of BUILTIN_PLUGIN_IDS) {
+      if (this.isLoaded(pluginId)) {
+        console.log(`${logPrefix('Loader')} Skipping already loaded: ${pluginId}`);
+        continue;
       }
 
-      return results;
-    } catch (error) {
-      console.error('[PluginLoader] Failed to load installed npm plugins:', error);
-      return [];
+      const result = await this.loadPlugin(`${BUILTIN_PLUGIN_PREFIX}${pluginId}${PLUGIN_FILE_EXTENSION}`);
+      results.push(result);
     }
+
+    // Load installed npm plugins
+    try {
+      const npmResults = await this.loadInstalledNpmPlugins();
+      results.push(...npmResults);
+    } catch (error) {
+      console.error(`${logPrefix('Loader')} Failed to load npm plugins:`, error);
+    }
+
+    return results;
   }
 
   /**
@@ -311,9 +534,6 @@ export class PluginLoader {
       throw new Error(`Plugin ${pluginId} not loaded`);
     }
 
-    // Unregister from SDK
-    // TODO: await pluginSDK.unregister(pluginId);
-
     // Unregister from sandbox (T094)
     getPluginSandbox().unregisterPlugin(pluginId);
 
@@ -321,7 +541,7 @@ export class PluginLoader {
     this.loadedPlugins.delete(pluginId);
     this.pluginManifests.delete(pluginId);
 
-    console.log(`[PluginLoader] Unloaded plugin: ${pluginId}`);
+    console.log(`${logPrefix('Loader')} Unloaded: ${pluginId}`);
   }
 
   /**
@@ -360,154 +580,94 @@ export class PluginLoader {
   }
 
   /**
-   * Load built-in plugins and installed npm plugins
-   * Skips plugins that are already loaded to avoid redundant operations
+   * Search plugins by trigger
+   * Simplified version - directly calls plugin search functions
    */
-  async loadBuiltInPlugins(): Promise<PluginLoadResult[]> {
-    const builtInPlugins = [
-      'hello-world',
-      'timestamp',
-      'json-formatter',
-      'regex-tester',
-      'sandbox-demo', // Demo plugin for sandbox features
-    ];
+  async searchByTrigger(query: string): Promise<PluginSearchResult[]> {
+    const results: PluginSearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
 
-    const results: PluginLoadResult[] = [];
+    console.log(`${logPrefix('Loader')} searchByTrigger: ${query}`);
 
-    // 1. Load built-in plugins from src/lib/plugins/
-    for (const pluginId of builtInPlugins) {
-      // Skip if already loaded
-      if (this.isLoaded(pluginId)) {
-        console.log(`[PluginLoader] Skipping already loaded plugin: ${pluginId}`);
+    // Load abbreviation service
+    const { pluginAbbreviationService } = await import('./pluginAbbreviationService');
+    await pluginAbbreviationService.loadConfig();
+
+    for (const [pluginId, plugin] of this.loadedPlugins.entries()) {
+      // Check trigger match
+      const matchesTrigger = plugin.manifest.triggers.some((trigger) =>
+        lowerQuery.startsWith(trigger.toLowerCase())
+      );
+
+      // Check abbreviation match
+      const abbreviations = pluginAbbreviationService.getAbbreviations(pluginId);
+      const matchesAbbreviation = abbreviations.some((abbr) => {
+        if (!abbr.enabled) return false;
+        const abbrLower = abbr.keyword.toLowerCase();
+        return lowerQuery === abbrLower || lowerQuery.startsWith(`${abbrLower}:`);
+      });
+
+      if (!matchesTrigger && !matchesAbbreviation) {
         continue;
       }
 
-      try {
-        const result = await this.loadPlugin(`../lib/plugins/${pluginId}/index.ts`);
-        results.push(result);
-      } catch (error) {
-        console.error(`[PluginLoader] Failed to load built-in plugin ${pluginId}:`, error);
-        results.push({
-          manifest: {
-            id: pluginId,
-            name: pluginId,
-            version: '0.0.0',
-            description: 'Failed to load',
-            author: 'Unknown',
-            permissions: [],
-            triggers: [],
-          },
-          plugin: null as any,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      console.log(`${logPrefix('Loader')} Query "${query}" matched ${pluginId}`);
+
+      // Check if plugin is enabled
+      const sandbox = getPluginSandbox();
+      const context = sandbox.getPluginContext(pluginId);
+      if (!context || !context.isEnabled) {
+        console.log(`${logPrefix('Loader')} Plugin ${pluginId} is disabled, skipping`);
+        continue;
+      }
+
+      // Execute search
+      const searchResults = await this.executePluginSearch(pluginId, plugin, query);
+      if (Array.isArray(searchResults)) {
+        results.push(...searchResults);
       }
     }
 
-    // 2. Load installed npm plugins
-    try {
-      const npmPluginResults = await this.loadInstalledNpmPlugins();
-      results.push(...npmPluginResults);
-    } catch (error) {
-      console.error('[PluginLoader] Failed to load npm plugins:', error);
-    }
-
+    console.log(`${logPrefix('Loader')} Total results: ${results.length}`);
     return results;
   }
 
   /**
-   * Search plugins by trigger - v2 Architecture
-   *
-   * All plugins MUST use v2 API:
-   * - Plugins execute in Worker (isolated, safe)
-   * - Worker returns PluginSearchResultV2[] with actionData (no functions)
-   * - Main thread creates action functions from actionData
-   *
-   * This solves the clone issue: functions can't be cloned, but data can.
+   * Execute plugin search with error handling
    */
-  async searchByTrigger(query: string): Promise<PluginSearchResult[]> {
-    const results: PluginSearchResult[] = [];
-    const sandbox = getPluginSandbox();
-    const lowerQuery = query.toLowerCase();
+  private async executePluginSearch(
+    pluginId: string,
+    plugin: Plugin,
+    query: string
+  ): Promise<PluginSearchResult[] | undefined> {
+    const searchFunction = plugin.search;
 
-    console.log('[PluginLoader] searchByTrigger called with query:', query);
-
-    for (const [pluginId, plugin] of this.loadedPlugins.entries()) {
-      // Check if query matches any trigger
-      const matchesTrigger = plugin.manifest.triggers.some((trigger: string) =>
-        lowerQuery.startsWith(trigger.toLowerCase())
-      );
-
-      if (!matchesTrigger) {
-        continue;
-      }
-
-      // Check if plugin is enabled in sandbox
-      const context = sandbox.getPluginContext(pluginId);
-      if (!context || !context.isEnabled) {
-        console.log(`[PluginLoader] Skipping disabled plugin: ${pluginId}`);
-        continue;
-      }
-
-      // All plugins MUST have a registered module path for Worker execution
-      if (!context.pluginPath) {
-        console.error(`[PluginLoader] Plugin ${pluginId} has no module path - cannot execute in Worker`);
-        console.error(`[PluginLoader] Plugins MUST use v2 API with Worker execution`);
-        continue;
-      }
-
-      try {
-        console.log(`[PluginLoader] Executing plugin ${pluginId} in isolated Worker`);
-
-        // Execute in isolated Worker
-        const result = await sandbox.executePluginModule(pluginId, query);
-
-        if (result.success) {
-          // Convert PluginSearchResultV2[] to PluginSearchResult[]
-          // Create action functions on main thread from actionData
-          const actionExecutor = new ActionExecutor(plugin.manifest.permissions);
-
-          const convertedResults = result.results.map((v2Result: PluginSearchResultV2) => {
-            console.log(`[PluginLoader] Converting v2 result: ${v2Result.id}`);
-
-            // Create action function from actionData
-            const action = createActionFromData(v2Result.actionData, actionExecutor);
-
-            return {
-              id: v2Result.id,
-              title: v2Result.title,
-              description: v2Result.description,
-              icon: v2Result.icon,
-              action,
-              score: v2Result.score || 0.9,
-            };
-          });
-
-          results.push(...convertedResults);
-          console.log(`[PluginLoader] Plugin ${pluginId} returned ${convertedResults.length} results`);
-        } else {
-          console.error(`[PluginLoader] Plugin ${pluginId} execution failed:`, result.error);
-        }
-
-      } catch (error) {
-        console.error(`[PluginLoader] Plugin ${pluginId} search error:`, error);
-
-        // Handle crash in sandbox
-        const wasDisabled = sandbox.handlePluginCrash?.(pluginId);
-        if (wasDisabled) {
-          console.error(`[PluginLoader] Plugin ${pluginId} disabled after crash`);
-        }
-      }
+    if (typeof searchFunction !== 'function') {
+      console.error(`${logPrefix('Loader')} Plugin ${pluginId} missing search function`);
+      return undefined;
     }
 
-    console.log('[PluginLoader] Total results:', results.length);
-    return results;
+    try {
+      const results = await searchFunction(query);
+      console.log(`${logPrefix('Loader')} Plugin ${pluginId} returned:`, results);
+      return results;
+    } catch (error) {
+      console.error(`${logPrefix('Loader')} Plugin ${pluginId} search error:`, error);
+      return undefined;
+    }
   }
 }
 
-// Create singleton instance
+// ============================================================================
+// Singleton Instance
+// ============================================================================
+
+/** Singleton plugin loader instance */
 export const pluginLoader = new PluginLoader();
 
-// Plugin search result interface
+/**
+ * Plugin search result interface (re-exported for convenience)
+ */
 export interface PluginSearchResult {
   id: string;
   title: string;

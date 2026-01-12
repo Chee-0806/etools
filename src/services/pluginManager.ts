@@ -431,7 +431,7 @@ export class MarketplaceService {
   ): Promise<Plugin> {
     try {
       // TODO: Add progress callback support
-      const plugin = await invoke<Plugin>('marketplace_install', { pluginId });
+      const plugin = await invoke<Plugin>('marketplace_install', { packageName: pluginId });
       return plugin;
     } catch (error) {
       console.error('Failed to install plugin:', error);

@@ -178,6 +178,11 @@ export class PluginSandbox {
       hasModulePath: !!pluginPath,
       pluginPath,
     });
+
+    // Reset crash count and enable plugin on registration
+    // This allows plugins to recover from previous crashes when reloaded
+    this.resetCrashCount(pluginId);
+    this.setPluginEnabled(pluginId, true);
   }
 
   /**
@@ -720,18 +725,6 @@ export class PluginSandbox {
   }
 
   /**
-   * Enable/disable a plugin
-   */
-  setPluginEnabled(pluginId: string, enabled: boolean): void {
-    const context = this.contexts.get(pluginId);
-
-    if (context) {
-      context.isEnabled = enabled;
-      console.log(`[PluginSandbox] Plugin ${pluginId} ${enabled ? 'enabled' : 'disabled'}`);
-    }
-  }
-
-  /**
    * Enable a plugin
    */
   enablePlugin(pluginId: string): void {
@@ -776,13 +769,6 @@ export class PluginSandbox {
    */
   getRegisteredPlugins(): string[] {
     return Array.from(this.contexts.keys());
-  }
-
-  /**
-   * Get plugin context
-   */
-  getPluginContext(pluginId: string): PluginExecutionContext | undefined {
-    return this.contexts.get(pluginId);
   }
 
   /**

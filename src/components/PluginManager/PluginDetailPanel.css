@@ -6,9 +6,16 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  max-height: 80vh;
   overflow-y: auto;
   padding: var(--spacing-6);
   background: rgb(var(--color-bg-primary));
+}
+
+/* 确保在 overlay 中时能正确滚动 */
+.plugin-detail-panel-overlay .plugin-detail-panel {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Loading State */

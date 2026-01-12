@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastUpdated": "2025-01-01T00:00:00Z",
+  "lastUpdated": "2026-01-12T00:00:00Z",
   "plugins": [
     {
       "id": "hello-world",
@@ -25,6 +25,30 @@
       "downloadCount": 543,
       "rating": 5.0,
       "ratingCount": 12
+    },
+    {
+      "id": "devtools",
+      "name": "开发者工具",
+      "version": "1.0.0",
+      "description": "JSON 格式化、Base64 编解码、URL 编码等开发工具",
+      "author": "ETools Team",
+      "category": "developer",
+      "npmPackage": "@etools-plugin/devtools",
+      "homepage": "https://github.com/etools-team/devtools-plugin",
+      "icon": "https://raw.githubusercontent.com/etools-team/devtools-plugin/main/icon.png",
+      "manifest": {
+        "id": "devtools",
+        "name": "开发者工具",
+        "version": "1.0.0",
+        "description": "JSON 格式化、Base64 编解码、URL 编码等开发工具",
+        "author": "ETools Team",
+        "triggers": ["json:", "base64:", "url:"],
+        "permissions": [],
+        "entry": "index.ts"
+      },
+      "downloadCount": 0,
+      "rating": 5.0,
+      "ratingCount": 0
     },
     {
       "id": "qrcode-generator",

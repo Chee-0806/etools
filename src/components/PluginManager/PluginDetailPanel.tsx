@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { usePluginState, usePluginDispatch } from '../../services/pluginStateStore';
 import { pluginManagerService } from '../../services/pluginManager';
 import { pluginAbbreviationService, PluginAbbreviationService } from '../../services/pluginAbbreviationService';
@@ -49,18 +50,41 @@ const PluginDetailPanel: React.FC<PluginDetailPanelProps> = ({ pluginId, onClose
       if (foundPlugin) {
         setPlugin(foundPlugin);
 
-        // Load health
-        const healthData = await pluginManagerService.getPluginHealth(pluginId);
-        setHealth(healthData);
+        // Load health - 如果命令不存在则使用默认值
+        try {
+          const healthData = await pluginManagerService.getPluginHealth(pluginId);
+          setHealth(healthData);
+        } catch (error) {
+          console.warn('[PluginDetailPanel] Health check not available, using default:', error);
+          // 使用默认的健康状态
+          setHealth({
+            status: 'unknown',
+            message: '健康检查不可用',
+            lastChecked: Date.now(),
+            errors: [],
+          });
+        }
 
-        // Load usage stats
-        const statsData = await pluginManagerService.getPluginUsageStats(pluginId);
-        setUsageStats(statsData);
+        // Load usage stats - 如果命令不存在则使用默认值
+        try {
+          const statsData = await pluginManagerService.getPluginUsageStats(pluginId);
+          setUsageStats(statsData);
+        } catch (error) {
+          console.warn('[PluginDetailPanel] Usage stats not available, using default:', error);
+          // 使用默认的使用统计
+          setUsageStats({
+            lastUsed: null,
+            usageCount: 0,
+            lastExecutionTime: null,
+            averageExecutionTime: null,
+          });
+        }
 
-        // Load abbreviations
-        await pluginAbbreviationService.loadConfig();
-        const abbrs = pluginAbbreviationService.getAbbreviations(pluginId);
+        // Load abbreviations - 每次都强制重新加载以确保最新数据
+        const config = await invoke<any>('get_plugin_abbreviations');
+        const abbrs = config[pluginId] || [];
         setAbbreviations(abbrs);
+        console.log('[PluginDetailPanel] Loaded abbreviations for', pluginId, ':', abbrs);
       }
     } catch (error) {
       console.error('Failed to load plugin details:', error);
@@ -89,12 +113,13 @@ const PluginDetailPanel: React.FC<PluginDetailPanelProps> = ({ pluginId, onClose
         },
       });
     } catch (error) {
+      console.warn('[PluginDetailPanel] Health check not available:', error);
       dispatch({
         type: 'SHOW_NOTIFICATION',
         payload: {
-          type: 'error',
-          title: '健康检查失败',
-          message: error instanceof Error ? error.message : '未知错误',
+          type: 'warning',
+          title: '健康检查不可用',
+          message: '插件健康检查功能暂未实现',
         },
       });
     } finally {
@@ -157,10 +182,18 @@ const PluginDetailPanel: React.FC<PluginDetailPanelProps> = ({ pluginId, onClose
         enabled: true,
       };
 
+      // 保存到后端
       await pluginAbbreviationService.setAbbreviation(plugin.manifest.id, newAbbr);
-      setAbbreviations([...abbreviations, newAbbr]);
+
+      // 立即从后端重新加载以确保同步
+      const config = await invoke<any>('get_plugin_abbreviations');
+      const abbrs = config[plugin.manifest.id] || [];
+      setAbbreviations(abbrs);
+
       setNewAbbrKeyword('');
       setAbbrError(null);
+
+      console.log('[PluginDetailPanel] Added abbreviation, current list:', abbrs);
 
       dispatch({
         type: 'SHOW_NOTIFICATION',
@@ -171,6 +204,7 @@ const PluginDetailPanel: React.FC<PluginDetailPanelProps> = ({ pluginId, onClose
         },
       });
     } catch (error) {
+      console.error('[PluginDetailPanel] Failed to add abbreviation:', error);
       dispatch({
         type: 'SHOW_NOTIFICATION',
         payload: {
@@ -189,8 +223,15 @@ const PluginDetailPanel: React.FC<PluginDetailPanelProps> = ({ pluginId, onClose
     if (!plugin) return;
 
     try {
+      // 从后端删除
       await pluginAbbreviationService.removeAbbreviation(plugin.manifest.id, keyword);
-      setAbbreviations(abbreviations.filter(abbr => abbr.keyword !== keyword));
+
+      // 立即从后端重新加载以确保同步
+      const config = await invoke<any>('get_plugin_abbreviations');
+      const abbrs = config[plugin.manifest.id] || [];
+      setAbbreviations(abbrs);
+
+      console.log('[PluginDetailPanel] Removed abbreviation, current list:', abbrs);
 
       dispatch({
         type: 'SHOW_NOTIFICATION',
@@ -201,6 +242,7 @@ const PluginDetailPanel: React.FC<PluginDetailPanelProps> = ({ pluginId, onClose
         },
       });
     } catch (error) {
+      console.error('[PluginDetailPanel] Failed to remove abbreviation:', error);
       dispatch({
         type: 'SHOW_NOTIFICATION',
         payload: {
@@ -227,11 +269,17 @@ const PluginDetailPanel: React.FC<PluginDetailPanelProps> = ({ pluginId, onClose
         enabled: !abbr.enabled,
       };
 
+      // 保存到后端
       await pluginAbbreviationService.setAbbreviation(plugin.manifest.id, updatedAbbr);
-      setAbbreviations(abbreviations.map(a =>
-        a.keyword === keyword ? updatedAbbr : a
-      ));
+
+      // 立即从后端重新加载以确保同步
+      const config = await invoke<any>('get_plugin_abbreviations');
+      const abbrs = config[plugin.manifest.id] || [];
+      setAbbreviations(abbrs);
+
+      console.log('[PluginDetailPanel] Toggled abbreviation, current list:', abbrs);
     } catch (error) {
+      console.error('[PluginDetailPanel] Failed to toggle abbreviation:', error);
       dispatch({
         type: 'SHOW_NOTIFICATION',
         payload: {

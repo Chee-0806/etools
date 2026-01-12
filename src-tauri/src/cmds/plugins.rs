@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::cmp::Ordering;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use tauri::{AppHandle, Manager};
 
 /// Get plugins directory
@@ -27,24 +28,24 @@ fn ensure_plugins_dir(handle: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Find plugin path by trying multiple possible locations.
-/// Simplifies duplicate path-finding logic across enable/disable/uninstall commands.
+/// Get plugin path
 ///
-/// Tries two locations:
-/// 1. Direct plugin directory: plugins/{plugin_id}
-/// 2. NPM-style scoped directory: plugins/node_modules/@etools-plugin/{plugin_id}
+/// All plugins are installed via npm to: plugins/node_modules/@etools-plugin/{plugin_id}
+/// The plugin_id can be:
+/// - Short ID: "devtools"
+/// - Full package name: "@etools-plugin/devtools"
 fn find_plugin_path(plugins_dir: &PathBuf, plugin_id: &str) -> Result<PathBuf, String> {
-    let direct_path = plugins_dir.join(plugin_id);
-    let npm_path = plugins_dir
+    // Extract the short plugin ID (remove @etools-plugin/ prefix if present)
+    let short_id = plugin_id.strip_prefix("@etools-plugin/").unwrap_or(plugin_id);
+
+    // All plugins are in the standard npm location
+    let plugin_path = plugins_dir
         .join("node_modules")
         .join("@etools-plugin")
-        .join(plugin_id);
+        .join(short_id);
 
-    // Try direct path first, then npm-style path
-    if direct_path.exists() {
-        Ok(direct_path)
-    } else if npm_path.exists() {
-        Ok(npm_path)
+    if plugin_path.exists() {
+        Ok(plugin_path)
     } else {
         Err(format!("插件不存在: {}", plugin_id))
     }
@@ -1449,20 +1450,28 @@ pub async fn plugin_disable(handle: AppHandle, plugin_id: String) -> Result<Plug
 /// Uninstall a plugin
 #[tauri::command]
 pub async fn plugin_uninstall(handle: AppHandle, plugin_id: String) -> Result<(), String> {
-    let plugins_dir = ensure_plugins_dir(&handle)?;
-
-    // Find plugin path (tries direct and npm-style locations)
-    let actual_path = find_plugin_path(&plugins_dir, &plugin_id)?;
-
     // TODO: Check if it's a core plugin that should not be uninstalled
     let core_plugins = vec!["core", "system"];
     if core_plugins.contains(&plugin_id.as_str()) {
         return Err(format!("不能卸载核心插件: {}", plugin_id));
     }
 
-    // Remove plugin directory
-    fs::remove_dir_all(&actual_path)
-        .map_err(|e| format!("Failed to remove plugin directory: {}", e))?;
+    // Use npm uninstall (matches new installation approach)
+    let plugins_dir = ensure_plugins_dir(&handle)?;
+
+    println!("[plugin_uninstall] Running: npm uninstall {}", plugin_id);
+    let output = Command::new("npm")
+        .args(["uninstall", &plugin_id])
+        .current_dir(&plugins_dir)  // Use current_dir like install
+        .output()
+        .map_err(|e| format!("Failed to execute npm uninstall: {}", e))?;
+
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("npm uninstall failed: {}", error));
+    }
+
+    println!("[plugin_uninstall] npm uninstall successful");
 
     // Remove plugin state
     remove_plugin_state(&handle, &plugin_id)?;

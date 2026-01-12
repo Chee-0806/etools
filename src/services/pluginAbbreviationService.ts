@@ -117,7 +117,11 @@ class PluginAbbreviationService {
       this.config[pluginId].push(abbreviation);
     }
 
+    // 保存到后端
     await this.saveConfig();
+
+    // 确保内部配置已更新（saveConfig 后无需额外操作，因为上面已经更新了 this.config）
+    console.log('[PluginAbbreviationService] Saved abbreviation for plugin:', pluginId, this.config[pluginId]);
   }
 
   /**

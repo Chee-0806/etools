@@ -106,20 +106,36 @@ impl MarketplaceService {
         println!("[Marketplace] Installing plugin: {}", package_name);
 
         // 1. Get plugins directory
-        let plugins_dir = handle
+        let plugins_base = handle
             .path()
             .app_data_dir()
             .map_err(|e| format!("Failed to get data dir: {}", e))?
-            .join("node_modules");
+            .join("plugins");
 
-        fs::create_dir_all(&plugins_dir)
+        println!("[Marketplace] Plugins base directory: {:?}", plugins_base);
+        fs::create_dir_all(&plugins_base)
             .map_err(|e| format!("Failed to create plugins directory: {}", e))?;
 
-        // 2. Execute npm install
+        // 2. Ensure package.json exists (npm 需要)
+        let package_json_path = plugins_base.join("package.json");
+        if !package_json_path.exists() {
+            println!("[Marketplace] Creating package.json in plugins directory");
+            let default_package_json = r#"{"name":"etools-plugins","dependencies":{}}"#;
+            fs::write(&package_json_path, default_package_json)
+                .map_err(|e| format!("Failed to create package.json: {}", e))?;
+        }
+
+        // 3. Execute npm install (在 plugins 目录执行)
+        println!("[Marketplace] Running: npm install {}", package_name);
         let output = Command::new("npm")
-            .args(["install", package_name, "--prefix", plugins_dir.to_str().unwrap()])
+            .args(["install", package_name])
+            .current_dir(&plugins_base)  // 使用 current_dir 而不是 --prefix
             .output()
             .map_err(|e| format!("Failed to execute npm install: {}", e))?;
+
+        println!("[Marketplace] npm install stdout: {}", String::from_utf8_lossy(&output.stdout));
+        println!("[Marketplace] npm install stderr: {}", String::from_utf8_lossy(&output.stderr));
+        println!("[Marketplace] npm install status: {}", output.status);
 
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
@@ -128,34 +144,87 @@ impl MarketplaceService {
 
         println!("[Marketplace] npm install successful");
 
-        // 3. Read package.json from installed package
-        let package_path = plugins_dir.join(package_name).join("package.json");
+        // 3. List what was installed
+        println!("[Marketplace] Listing contents of {:?}", plugins_base);
+        if let Ok(entries) = fs::read_dir(&plugins_base) {
+            for entry in entries.flatten() {
+                println!("[Marketplace]   - {:?}", entry.file_name());
+            }
+        }
+
+        // 4. Read package.json from installed package
+        // npm install --prefix plugins 会创建 plugins/node_modules 目录
+        let node_modules_dir = plugins_base.join("node_modules");
+        let package_path = node_modules_dir.join(package_name).join("package.json");
+
+        println!("[Marketplace] Looking for package.json at: {:?}", package_path);
+        println!("[Marketplace] Package.json exists: {}", package_path.exists());
+
+        if !package_path.exists() {
+            return Err(format!("package.json not found at {:?}", package_path));
+        }
+
+        println!("[Marketplace] Using package.json at: {:?}", package_path);
         let package_content = fs::read_to_string(&package_path)
-            .map_err(|e| format!("Failed to read package.json: {}", e))?;
+            .map_err(|e| format!("Failed to read package.json from {:?}: {}", package_path, e))?;
 
         let package_json: Value = serde_json::from_str(&package_content)
             .map_err(|e| format!("Failed to parse package.json: {}", e))?;
 
-        // 4. Extract ETools metadata
+        // 4. Extract ETools metadata (optional for compatibility)
         let etools_metadata = package_json.get("etools")
-            .and_then(|v| v.as_object())
-            .ok_or("package.json missing 'etools' metadata field")?;
+            .and_then(|v| v.as_object());
 
-        let plugin_id = etools_metadata.get("id")
-            .and_then(|v| v.as_str())
-            .ok_or("etools.id missing")?;
-
-        let title = etools_metadata.get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or(package_json.get("name")
+        // Generate plugin_id from package name if not in etools metadata
+        let plugin_id = if let Some(meta) = &etools_metadata {
+            meta.get("id")
                 .and_then(|v| v.as_str())
-                .unwrap_or("Unknown"));
+                .ok_or("etools.id missing")?
+        } else {
+            // Generate ID from package name (e.g., "@etools-plugin/devtools" -> "devtools")
+            package_name.strip_prefix("@etools-plugin/")
+                .unwrap_or(package_name)
+        };
 
-        let description = etools_metadata.get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or(package_json.get("description")
+        let title = if let Some(meta) = &etools_metadata {
+            meta.get("title")
                 .and_then(|v| v.as_str())
-                .unwrap_or("No description"));
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    package_json.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string()
+                })
+        } else {
+            // Generate title from package name (e.g., "devtools" -> "Devtools")
+            package_name.strip_prefix("@etools-plugin/")
+                .unwrap_or(package_name)
+                .split('-')
+                .map(|s| {
+                    let mut chars = s.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join(" ")
+        };
+
+        let description = if let Some(meta) = &etools_metadata {
+            meta.get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| {
+                    package_json.get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("No description")
+                })
+        } else {
+            package_json.get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("No description")
+        };
 
         let version = package_json.get("version")
             .and_then(|v| v.as_str())
@@ -163,37 +232,48 @@ impl MarketplaceService {
 
         let author = package_json.get("author")
             .and_then(|v| v.as_str())
-            .or_else(|| etools_metadata.get("author").and_then(|v| v.as_str()))
+            .or_else(|| etools_metadata.as_ref().and_then(|m| m.get("author").and_then(|v| v.as_str())))
             .map(String::from);
 
-        let permissions = etools_metadata.get("permissions")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect())
-            .unwrap_or_default();
+        let permissions = if let Some(meta) = &etools_metadata {
+            meta.get("permissions")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
-        let triggers: Vec<String> = etools_metadata.get("triggers")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect())
-            .unwrap_or_default();
+        let triggers: Vec<String> = if let Some(meta) = &etools_metadata {
+            meta.get("triggers")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect())
+                .unwrap_or_default()
+        } else {
+            // Generate default triggers from plugin ID
+            vec![format!("{}:", plugin_id)]
+        };
 
-        let icon = etools_metadata.get("icon")
+        let _icon = etools_metadata.as_ref()
+            .and_then(|m| m.get("icon"))
             .and_then(|v| v.as_str())
             .map(String::from);
 
         let homepage = package_json.get("homepage")
             .and_then(|v| v.as_str())
-            .or_else(|| etools_metadata.get("homepage").and_then(|v| v.as_str()))
+            .or_else(|| etools_metadata.as_ref().and_then(|m| m.get("homepage").and_then(|v| v.as_str())))
             .map(String::from);
 
         let repository = package_json.get("repository")
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let category_str = etools_metadata.get("category")
+        let category_str = etools_metadata.as_ref()
+            .and_then(|m| m.get("category"))
             .and_then(|v| v.as_str())
             .unwrap_or("utilities");
         let category = Self::parse_category(category_str);
@@ -238,7 +318,7 @@ impl MarketplaceService {
                 average_execution_time: None,
             },
             installed_at: now,
-            install_path: plugins_dir.join(package_name).to_string_lossy().to_string(),
+            install_path: package_path.parent().unwrap().to_string_lossy().to_string(),
             source: PluginSource::Marketplace,
         })
     }
@@ -251,11 +331,12 @@ impl MarketplaceService {
             .path()
             .app_data_dir()
             .map_err(|e| format!("Failed to get data dir: {}", e))?
-            .join("node_modules");
+            .join("plugins");
 
         // Execute npm uninstall
         let output = Command::new("npm")
-            .args(["uninstall", package_name, "--prefix", plugins_dir.to_str().unwrap()])
+            .args(["uninstall", package_name])
+            .current_dir(&plugins_dir)  // 使用 current_dir 而不是 --prefix
             .output()
             .map_err(|e| format!("Failed to execute npm uninstall: {}", e))?;
 
@@ -272,16 +353,16 @@ impl MarketplaceService {
     pub fn update_plugin(&self, package_name: &str, handle: &AppHandle) -> MarketplaceResult<Plugin> {
         println!("[Marketplace] Updating plugin: {}", package_name);
 
-        // Update is essentially install with --upgrade flag
         let plugins_dir = handle
             .path()
             .app_data_dir()
             .map_err(|e| format!("Failed to get data dir: {}", e))?
-            .join("node_modules");
+            .join("plugins");
 
         // Execute npm update
         let output = Command::new("npm")
-            .args(["update", package_name, "--prefix", plugins_dir.to_str().unwrap()])
+            .args(["update", package_name])
+            .current_dir(&plugins_dir)  // 使用 current_dir 而不是 --prefix
             .output()
             .map_err(|e| format!("Failed to execute npm update: {}", e))?;
 
@@ -459,7 +540,7 @@ impl MarketplaceService {
 
         println!("[Marketplace] App data dir: {:?}", app_data_dir);
 
-        let plugins_dir = app_data_dir.join("node_modules/@etools-plugin");
+        let plugins_dir = app_data_dir.join("plugins/node_modules/@etools-plugin");
 
         println!("[Marketplace] Plugins dir: {:?}", plugins_dir);
         println!("[Marketplace] Plugins dir exists: {}", plugins_dir.exists());
@@ -515,43 +596,76 @@ impl MarketplaceService {
 
             println!("[Marketplace] Successfully parsed package.json");
 
-            // Extract etools metadata
+            // Extract etools metadata (optional for compatibility)
             let etools_metadata = package_json
                 .get("etools")
-                .and_then(|v| v.as_object())
-                .ok_or_else(|| format!("Missing etools metadata in {:?}", package_json_path))?;
+                .and_then(|v| v.as_object());
 
-            let plugin_id = etools_metadata
-                .get("id")
+            let package_name = package_json
+                .get("name")
                 .and_then(|v| v.as_str())
-                .unwrap_or_else(|| {
-                    path.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("unknown")
-                })
-                .to_string();
+                .unwrap_or("Unknown");
 
-            let name = etools_metadata
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or_else(|| {
-                    package_json
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown")
-                })
-                .to_string();
+            // Generate plugin_id from package name if not in etools metadata
+            let plugin_id = if let Some(meta) = &etools_metadata {
+                meta.get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_else(|| {
+                        path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("unknown")
+                    })
+                    .to_string()
+            } else {
+                // Generate from package name (e.g., "@etools-plugin/devtools" -> "devtools")
+                package_name.strip_prefix("@etools-plugin/")
+                    .unwrap_or(package_name)
+                    .to_string()
+            };
 
-            let description = etools_metadata
-                .get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or_else(|| {
-                    package_json
-                        .get("description")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                })
-                .to_string();
+            let name = if let Some(meta) = &etools_metadata {
+                meta.get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_else(|| {
+                        package_json
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown")
+                    })
+                    .to_string()
+            } else {
+                // Generate title from package name
+                package_name.strip_prefix("@etools-plugin/")
+                    .unwrap_or(package_name)
+                    .split('-')
+                    .map(|s| {
+                        let mut chars = s.chars();
+                        match chars.next() {
+                            None => String::new(),
+                            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join(" ")
+            };
+
+            let description = if let Some(meta) = &etools_metadata {
+                meta.get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_else(|| {
+                        package_json
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                    })
+                    .to_string()
+            } else {
+                package_json
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
 
             let version = package_json
                 .get("version")
@@ -559,35 +673,49 @@ impl MarketplaceService {
                 .unwrap_or("0.0.0")
                 .to_string();
 
-            let author = etools_metadata
-                .get("author")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
+            let author = if let Some(meta) = &etools_metadata {
+                meta.get("author")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string()
+            } else {
+                package_json
+                    .get("author")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string()
+            };
 
             // Extract triggers
-            let triggers: Vec<String> = etools_metadata
-                .get("triggers")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str())
-                        .map(String::from)
-                        .collect()
-                })
-                .unwrap_or_default();
+            let triggers: Vec<String> = if let Some(meta) = &etools_metadata {
+                meta.get("triggers")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .map(String::from)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                // Generate default triggers from plugin ID
+                vec![format!("{}:", plugin_id)]
+            };
 
             // Extract permissions as strings
-            let permissions: Vec<String> = etools_metadata
-                .get("permissions")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str())
-                        .map(String::from)
-                        .collect()
-                })
-                .unwrap_or_default();
+            let permissions: Vec<String> = if let Some(meta) = &etools_metadata {
+                meta.get("permissions")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .map(String::from)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
 
             // Convert triggers to PluginTrigger structs
             let plugin_triggers: Vec<PluginTrigger> = triggers

@@ -1,125 +1,179 @@
 /**
  * Debug Logger
- * Writes all debug logs to a file via Rust backend
+ * Writes debug logs to a file via Rust backend
  */
 
 import { invoke } from '@tauri-apps/api/core';
 
-let logBuffer: string[] = [];
-let isWriting = false;
+// ============================================================================
+// Constants
+// ============================================================================
 
-const MAX_BUFFER_SIZE = 50; // Write to file when buffer reaches this size
+/** Maximum buffer size before auto-flush */
+const MAX_BUFFER_SIZE = 50;
+
+/** Auto-flush interval in milliseconds */
+const AUTO_FLUSH_INTERVAL = 2000;
+
+/** Tauri command for writing debug logs */
+const COMMAND_WRITE_DEBUG_LOG = 'write_debug_log';
+
+// ============================================================================
+// Types
+// ============================================================================
 
 /**
- * Get current timestamp in readable format
+ * Log level type
  */
-function getTimestamp(): string {
-  const now = new Date();
-  return now.toISOString();
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'LOG';
+
+/**
+ * Log entry structure
+ */
+interface LogEntry {
+  level: LogLevel;
+  tag: string;
+  message: string;
+  args: unknown[];
 }
 
 /**
- * Write log entry to buffer and flush to file if needed
+ * Logger interface
  */
-async function writeLog(level: string, tag: string, message: string, ...args: any[]) {
-  const timestamp = getTimestamp();
+export interface Logger {
+  debug(tag: string, message: string, ...args: unknown[]): void;
+  info(tag: string, message: string, ...args: unknown[]): void;
+  warn(tag: string, message: string, ...args: unknown[]): void;
+  error(tag: string, message: string, ...args: unknown[]): void;
+  log(tag: string, message: string, ...args: unknown[]): void;
+}
+
+// ============================================================================
+// State
+// ============================================================================
+
+let logBuffer: string[] = [];
+let isWriting = false;
+let flushInterval: ReturnType<typeof setInterval> | undefined;
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * Get ISO timestamp
+ */
+function getTimestamp(): string {
+  return new Date().toISOString();
+}
+
+/**
+ * Format log entry as string
+ */
+function formatLogEntry(level: LogLevel, tag: string, message: string, args: unknown[]): string {
   const argsStr = args.length > 0 ? ` ${JSON.stringify(args)}` : '';
-  const logEntry = `[${timestamp}] [${level}] [${tag}] ${message}${argsStr}`;
+  return `[${getTimestamp()}] [${level}] [${tag}] ${message}${argsStr}`;
+}
 
-  logBuffer.push(logEntry);
+/**
+ * Add log entry to buffer
+ */
+function addToBuffer(entry: string): void {
+  logBuffer.push(entry);
 
-  // Flush buffer if it's full
   if (logBuffer.length >= MAX_BUFFER_SIZE) {
-    await flushLog();
+    flushLog();
   }
 }
 
+// ============================================================================
+// Core Functions
+// ============================================================================
+
 /**
- * Flush log buffer to file via Rust command
+ * Flush log buffer to file
  */
-async function flushLog() {
+async function flushLog(): Promise<void> {
   if (isWriting || logBuffer.length === 0) return;
 
   isWriting = true;
 
   try {
-    // Join all logs and send to Rust
-    const logContent = logBuffer.join('\n');
-
-    // Use invoke to call Rust command
-    await invoke('write_debug_log', { content: logContent });
-
-    // Clear buffer
+    await invoke(COMMAND_WRITE_DEBUG_LOG, { content: logBuffer.join('\n') });
     logBuffer = [];
   } catch (error) {
     console.error('[Logger] Failed to write log:', error);
+    logBuffer = [];
   } finally {
     isWriting = false;
   }
 }
 
 /**
- * Logger with different levels
+ * Write log entry
  */
-export const logger = {
-  debug: (tag: string, message: string, ...args: any[]) => {
-    console.log(`[${tag}]`, message, ...args);
-    writeLog('DEBUG', tag, message, ...args);
-  },
-
-  info: (tag: string, message: string, ...args: any[]) => {
-    console.info(`[${tag}]`, message, ...args);
-    writeLog('INFO', tag, message, ...args);
-  },
-
-  warn: (tag: string, message: string, ...args: any[]) => {
-    console.warn(`[${tag}]`, message, ...args);
-    writeLog('WARN', tag, message, ...args);
-  },
-
-  error: (tag: string, message: string, ...args: any[]) => {
-    console.error(`[${tag}]`, message, ...args);
-    writeLog('ERROR', tag, message, ...args);
-  },
-
-  log: (tag: string, message: string, ...args: any[]) => {
-    console.log(`[${tag}]`, message, ...args);
-    writeLog('LOG', tag, message, ...args);
-  },
-};
-
-/**
- * Auto-flush logs periodically
- */
-let flushInterval: number | null = null;
-
-export function startAutoFlush() {
-  if (flushInterval) return;
-
-  // Flush every 2 seconds
-  flushInterval = window.setInterval(() => {
-    flushLog();
-  }, 2000);
+function writeLog(level: LogLevel, tag: string, message: string, ...args: unknown[]): void {
+  const entry = formatLogEntry(level, tag, message, args);
+  addToBuffer(entry);
 }
 
-export function stopAutoFlush() {
+/**
+ * Create a log method for a specific level
+ */
+function createLogMethod(level: LogLevel, consoleFn: Console['log']) {
+  return (tag: string, message: string, ...args: unknown[]) => {
+    consoleFn(`[${tag}]`, message, ...args);
+    writeLog(level, tag, message, ...args);
+  };
+}
+
+// ============================================================================
+// Logger Instance
+// ============================================================================
+
+/**
+ * Logger instance with all log level methods
+ */
+export const logger: Logger = {
+  debug: createLogMethod('DEBUG', console.log),
+  info: createLogMethod('INFO', console.info),
+  warn: createLogMethod('WARN', console.warn),
+  error: createLogMethod('ERROR', console.error),
+  log: createLogMethod('LOG', console.log),
+};
+
+// ============================================================================
+// Lifecycle Functions
+// ============================================================================
+
+/**
+ * Start auto-flush interval
+ */
+export function startAutoFlush(): void {
+  if (flushInterval) return;
+  flushInterval = setInterval(flushLog, AUTO_FLUSH_INTERVAL);
+}
+
+/**
+ * Stop auto-flush interval
+ */
+export function stopAutoFlush(): void {
   if (flushInterval) {
     clearInterval(flushInterval);
-    flushInterval = null;
+    flushInterval = undefined;
   }
 }
 
 /**
- * Initialize logger
+ * Initialize logger with auto-flush and cleanup handlers
  */
-export function initLogger() {
+export function initLogger(): void {
   startAutoFlush();
-
-  // Flush on page unload
-  window.addEventListener('beforeunload', () => {
-    flushLog();
-  });
-
+  window.addEventListener('beforeunload', flushLog);
   logger.info('Logger', 'Logger initialized');
 }
 
+/**
+ * Manually flush logs
+ */
+export { flushLog };

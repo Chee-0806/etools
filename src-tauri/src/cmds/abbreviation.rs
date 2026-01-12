@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::{State, Config};
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Abbreviation {
@@ -92,12 +92,12 @@ impl Default for AbbreviationConfig {
     }
 }
 
-async fn get_config_path(_app_config: &Config) -> Result<PathBuf, String> {
-    let home = std::env::var("HOME")
-        .map_err(|_| "Failed to get HOME directory")?;
-    let app_data_dir = PathBuf::from(home).join(".config");
+async fn get_config_path(handle: &AppHandle) -> Result<PathBuf, String> {
+    let config_dir = handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get config dir: {}", e))?;
 
-    let config_dir = app_data_dir.join("kaka");
     std::fs::create_dir_all(&config_dir)
         .map_err(|e| format!("Failed to create config directory: {}", e))?;
 
@@ -106,9 +106,9 @@ async fn get_config_path(_app_config: &Config) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub async fn get_abbreviation_config(
-    app_config: State<'_, Config>,
+    handle: AppHandle,
 ) -> Result<AbbreviationConfig, String> {
-    let config_path = get_config_path(&app_config).await?;
+    let config_path = get_config_path(&handle).await?;
     
     if !config_path.exists() {
         let default_config = AbbreviationConfig::default();
@@ -129,9 +129,9 @@ pub async fn get_abbreviation_config(
 #[tauri::command]
 pub async fn save_abbreviation_config(
     config: AbbreviationConfig,
-    app_config: State<'_, Config>,
+    handle: AppHandle,
 ) -> Result<(), String> {
-    let config_path = get_config_path(&app_config).await?;
+    let config_path = get_config_path(&handle).await?;
     
     let content = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
@@ -145,9 +145,9 @@ pub async fn save_abbreviation_config(
 #[tauri::command]
 pub async fn add_abbreviation(
     abbreviation: Abbreviation,
-    app_config: State<'_, Config>,
+    handle: AppHandle,
 ) -> Result<Abbreviation, String> {
-    let config_path = get_config_path(&app_config).await?;
+    let config_path = get_config_path(&handle).await?;
     
     let mut config = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
@@ -180,9 +180,9 @@ pub async fn add_abbreviation(
 pub async fn update_abbreviation(
     id: String,
     updates: Abbreviation,
-    app_config: State<'_, Config>,
+    handle: AppHandle,
 ) -> Result<Abbreviation, String> {
-    let config_path = get_config_path(&app_config).await?;
+    let config_path = get_config_path(&handle).await?;
     
     let mut config = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
@@ -215,9 +215,9 @@ pub async fn update_abbreviation(
 #[tauri::command]
 pub async fn delete_abbreviation(
     id: String,
-    app_config: State<'_, Config>,
+    handle: AppHandle,
 ) -> Result<(), String> {
-    let config_path = get_config_path(&app_config).await?;
+    let config_path = get_config_path(&handle).await?;
     
     let mut config = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
@@ -245,9 +245,9 @@ pub async fn delete_abbreviation(
 
 #[tauri::command]
 pub async fn export_abbreviation_config(
-    app_config: State<'_, Config>,
+    handle: AppHandle,
 ) -> Result<String, String> {
-    let config_path = get_config_path(&app_config).await?;
+    let config_path = get_config_path(&handle).await?;
     
     let config = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
@@ -265,12 +265,12 @@ pub async fn export_abbreviation_config(
 #[tauri::command]
 pub async fn import_abbreviation_config(
     config_json: String,
-    app_config: State<'_, Config>,
+    handle: AppHandle,
 ) -> Result<(), String> {
     let imported: AbbreviationConfig = serde_json::from_str(&config_json)
         .map_err(|e| format!("Invalid configuration format: {}", e))?;
     
-    let config_path = get_config_path(&app_config).await?;
+    let config_path = get_config_path(&handle).await?;
     let content = serde_json::to_string_pretty(&imported)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
     

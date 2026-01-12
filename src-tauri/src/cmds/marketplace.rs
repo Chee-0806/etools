@@ -101,8 +101,18 @@ pub fn marketplace_install(
         .map_err(|e| format!("Failed to parse package.json: {}", e))?;
 
     // 添加插件到 dependencies（使用 latest 版本）
+    // 确保 dependencies 字段存在
+    if package_data["dependencies"].is_null() {
+        package_data["dependencies"] = serde_json::json!({});
+    }
+
     if let Some(dependencies) = package_data["dependencies"].as_object_mut() {
-        dependencies[&package_name] = serde_json::json!("latest");
+        dependencies.entry(package_name.clone()).or_insert_with(|| serde_json::json!("latest"));
+    } else {
+        // 如果 dependencies 不是对象，创建一个新对象
+        let mut new_deps = serde_json::Map::new();
+        new_deps.insert(package_name.clone(), serde_json::json!("latest"));
+        package_data["dependencies"] = serde_json::Value::Object(new_deps);
     }
 
     // 写回 package.json
@@ -279,31 +289,62 @@ pub fn get_installed_plugins(handle: AppHandle) -> Result<Vec<Plugin>, String> {
     println!("[Marketplace] Found {} dependencies in package.json", dependencies.len());
     for (package_name, _version) in dependencies.iter() {
         println!("[Marketplace] Processing dependency: {}", package_name);
-        // 插件路径：plugins/node_modules/@etools-plugin/{package_name}
+        // 插件路径：plugins/node_modules/{package_name}
+        // package_name 可能是 "@etools-plugin/devtools" 或 "devtools"
         let plugin_path = plugins_dir
             .join("node_modules")
-            .join("@etools-plugin")
-            .join(package_name.trim_start_matches('@'));
+            .join(package_name);
 
         let plugin_json_path = plugin_path.join("plugin.json");
+        let package_json_path = plugin_path.join("package.json");
 
-        if !plugin_json_path.exists() {
-            println!("[Marketplace] Warning: plugin.json not found for {}", package_name);
+        // 尝试读取 plugin.json，如果不存在则读取 package.json
+        let (plugin_json_content, is_package_json) = if plugin_json_path.exists() {
+            println!("[Marketplace] Reading plugin.json for {}", package_name);
+            (std::fs::read_to_string(&plugin_json_path)
+                .map_err(|e| format!("Failed to read plugin.json for {}: {}", package_name, e))?, false)
+        } else if package_json_path.exists() {
+            println!("[Marketplace] plugin.json not found, reading package.json for {}", package_name);
+            (std::fs::read_to_string(&package_json_path)
+                .map_err(|e| format!("Failed to read package.json for {}: {}", package_name, e))?, true)
+        } else {
+            println!("[Marketplace] Warning: neither plugin.json nor package.json found for {}", package_name);
             continue;
+        };
+
+        let mut plugin_data: serde_json::Value = serde_json::from_str(&plugin_json_content)
+            .map_err(|e| format!("Failed to parse plugin JSON for {}: {}", package_name, e))?;
+
+        // 如果读取的是 package.json，尝试从 etools 字段获取插件元数据
+        if is_package_json {
+            // 先克隆 etools 元数据，避免借用冲突
+            let etools_meta_clone: Option<std::collections::HashMap<String, serde_json::Value>> =
+                plugin_data.get("etools")
+                    .and_then(|v| v.as_object())
+                    .map(|obj| {
+                        obj.iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect()
+                    });
+
+            if let Some(etools_meta) = etools_meta_clone {
+                println!("[Marketplace] Using etools metadata from package.json for {}", package_name);
+                // 合并 etools 元数据到顶层
+                for (key, value) in etools_meta.iter() {
+                    if plugin_data.get(key).is_none() {
+                        plugin_data[key] = value.clone();
+                    }
+                }
+            }
         }
-
-        // 读取 plugin.json
-        let plugin_json_content = std::fs::read_to_string(&plugin_json_path)
-            .map_err(|e| format!("Failed to read plugin.json for {}: {}", package_name, e))?;
-
-        let plugin_data: serde_json::Value = serde_json::from_str(&plugin_json_content)
-            .map_err(|e| format!("Failed to parse plugin.json for {}: {}", package_name, e))?;
 
         // 从 plugin.json 构造 Plugin 对象
         // 读取插件启用状态
         let plugin_id = plugin_data["name"].as_str().unwrap_or(package_name);
         let enabled = crate::cmds::plugins::get_plugin_enabled_state(&handle, &plugin_id.to_string())
             .unwrap_or(true); // 默认启用
+
+        let entry_point = plugin_data["main"].as_str().unwrap_or("index.js");
 
         let plugin = Plugin {
             id: plugin_id.to_string(),
@@ -316,7 +357,7 @@ pub fn get_installed_plugins(handle: AppHandle) -> Result<Vec<Plugin>, String> {
                 .as_array()
                 .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                 .unwrap_or_default(),
-            entry_point: plugin_data["main"].as_str().unwrap_or("index.js").to_string(),
+            entry_point: entry_point.to_string(),
             triggers: plugin_data["triggers"]
                 .as_array()
                 .map(|arr| arr.iter().map(|v| PluginTrigger {
@@ -347,7 +388,8 @@ pub fn get_installed_plugins(handle: AppHandle) -> Result<Vec<Plugin>, String> {
                 .and_then(|m| m.created())
                 .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64)
                 .unwrap_or(0),
-            install_path: plugin_path.to_string_lossy().to_string(),
+            // 拼接完整的入口文件路径（目录 + entry_point）
+            install_path: plugin_path.join(&entry_point).to_string_lossy().to_string(),
             source: PluginSource::Marketplace,
         };
 

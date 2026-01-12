@@ -85,7 +85,8 @@ const MarketplaceView: React.FC = () => {
   const loadInstalledPlugins = useCallback(async () => {
     try {
       const installedPlugins = await pluginManagerService.getInstalledPlugins();
-      const installedNames = new Set(installedPlugins.map((p) => p.name));
+      // 使用 entry_point (npm 包名) 而不是 name (显示名称) 来匹配
+      const installedNames = new Set(installedPlugins.map((p) => p.entryPoint));
       setInstalledPluginNames(installedNames);
       console.log(`[Marketplace] Found ${installedNames.size} installed plugins`);
     } catch (err) {
@@ -152,6 +153,15 @@ const MarketplaceView: React.FC = () => {
       console.log(`[Marketplace] Installing plugin: ${plugin.name}`);
 
       await marketplaceDataService.installPlugin(plugin);
+
+      // 安装成功后，重新加载插件加载器
+      const { pluginLoader } = await import('../../services/pluginLoader');
+      try {
+        await pluginLoader.loadInstalledPlugins();
+        console.log('[Marketplace] Plugins reloaded after installation');
+      } catch (error) {
+        console.error('[Marketplace] Failed to reload plugins:', error);
+      }
 
       dispatch({
         type: 'SHOW_NOTIFICATION',

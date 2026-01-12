@@ -5,11 +5,11 @@ mod models;
 mod services;
 mod types;
 
-use tauri::{Emitter, Manager, Monitor};
+use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 use cmds::app::{AppState, get_installed_apps, launch_app, track_app_usage, get_app_icon, get_app_icon_nsworkspace, get_recently_used};
 use cmds::search::{SearchState, unified_search, get_search_stats, search_files, search_browser_data, update_browser_cache, index_files, get_file_index_stats, start_file_indexer, stop_file_indexer};
-use cmds::clipboard::{get_clipboard_history, get_clipboard_item, paste_clipboard_item, delete_clipboard_item, clear_clipboard_history, get_clipboard_settings, set_clipboard_settings, search_clipboard};
+use cmds::clipboard::{get_clipboard_history, get_clipboard_item, paste_clipboard_item, delete_clipboard_item, clear_clipboard_history, get_clipboard_settings, set_clipboard_settings, search_clipboard, write_clipboard_text};
 use cmds::plugins::{
     // ✅ 安全加固：移除 plugin_list，只允许从市场安装插件
     // plugin_list,  // 已禁用 - 不再允许从本地 plugins/ 目录加载插件
@@ -36,6 +36,7 @@ use cmds::settings::{get_settings, get_setting, set_setting, update_settings, re
 use cmds::window::{get_screen_info, resize_window_smart};
 use cmds::performance::{PerformanceState, get_performance_metrics, check_performance_requirements, record_performance_event, get_average_search_time};
 use cmds::abbreviation::{get_abbreviation_config, save_abbreviation_config, add_abbreviation, update_abbreviation, delete_abbreviation, export_abbreviation_config, import_abbreviation_config};
+use cmds::debug::{write_debug_log, clear_debug_log, read_debug_log};
 
 /// Get the default global hotkey for the current platform.
 /// Simplifies duplicate default hotkey logic throughout the codebase.
@@ -357,8 +358,6 @@ pub fn run() {
                     let window_width = 800u32;
                     let window_height = 600u32;
 
-                    use tauri::Manager;
-
                     // 获取鼠标位置
                     if let Ok(cursor_pos) = window_clone.cursor_position() {
                         let cursor_x = cursor_pos.x as i32;
@@ -521,6 +520,7 @@ pub fn run() {
             get_clipboard_settings,
             set_clipboard_settings,
             search_clipboard,
+            write_clipboard_text,
             // Plugin commands
             // ✅ 安全加固：移除 plugin_list，只允许从市场安装插件
             // plugin_list,  // 已禁用
@@ -596,6 +596,10 @@ pub fn run() {
             reregister_hotkey,
             check_hotkey_conflicts,
             get_settings_file_path,
+            // Debug commands
+            write_debug_log,
+            clear_debug_log,
+            read_debug_log,
             get_abbreviation_config,
             save_abbreviation_config,
             add_abbreviation,

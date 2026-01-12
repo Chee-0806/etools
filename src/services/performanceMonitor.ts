@@ -74,9 +74,9 @@ class PerformanceMonitorImpl {
     };
 
     const threshold = thresholds[metric.category];
-    if (duration > threshold) {
+    if (metric.duration > threshold) {
       console.warn(
-        `[Performance] Slow ${metric.category}: ${metric.name} took ${duration.toFixed(2)}ms (threshold: ${threshold}ms)`,
+        `[Performance] Slow ${metric.category}: ${metric.name} took ${metric.duration.toFixed(2)}ms (threshold: ${threshold}ms)`,
         metric.metadata
       );
     }

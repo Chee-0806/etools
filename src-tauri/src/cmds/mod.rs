@@ -1,6 +1,7 @@
 pub mod abbreviation;
 pub mod app;
 pub mod clipboard;
+pub mod debug;
 pub mod marketplace;
 pub mod performance;
 pub mod plugins;
