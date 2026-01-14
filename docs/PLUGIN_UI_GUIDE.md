@@ -10,7 +10,7 @@ etools 提供了一套完整的 UI 组件库，插件应该优先使用这些组
 
 ```typescript
 // ✅ 推荐：使用 etools UI 组件
-import { Button, Input, Card, Badge } from '@etools/ui';
+import { Button, Input, Card, Badge } from '@etools/plugin-sdk';
 
 export function MyPluginUI() {
   return (
@@ -78,7 +78,7 @@ etools 支持浅色和深色主题，插件 UI 应自动适配：
 #### Button
 
 ```typescript
-import { Button } from '@etools/ui';
+import { Button } from '@etools/plugin-sdk';
 
 <Button variant="primary">主要按钮</Button>
 <Button variant="secondary">次要按钮</Button>
@@ -92,7 +92,7 @@ import { Button } from '@etools/ui';
 #### Input
 
 ```typescript
-import { Input } from '@etools/ui';
+import { Input } from '@etools/plugin-sdk';
 
 <Input placeholder="请输入..." />
 <Input variant="filled" placeholder="填充样式" />
@@ -103,7 +103,7 @@ import { Input } from '@etools/ui';
 #### Card
 
 ```typescript
-import { Card } from '@etools/ui';
+import { Card } from '@etools/plugin-sdk';
 
 <Card variant="default" padding="md">
   内容
@@ -121,7 +121,7 @@ import { Card } from '@etools/ui';
 #### Badge
 
 ```typescript
-import { Badge } from '@etools/ui';
+import { Badge } from '@etools/plugin-sdk';
 
 <Badge variant="success">成功</Badge>
 <Badge variant="warning">警告</Badge>
@@ -132,7 +132,7 @@ import { Badge } from '@etools/ui';
 #### Spinner
 
 ```typescript
-import { Spinner } from '@etools/ui';
+import { Spinner } from '@etools/plugin-sdk';
 
 <Spinner /> // 默认大小
 <Spinner size="sm" />

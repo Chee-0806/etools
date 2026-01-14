@@ -16,12 +16,6 @@ import { getPluginSandbox } from './pluginSandbox';
 // Constants
 // ============================================================================
 
-/** Plugin file extension */
-const PLUGIN_FILE_EXTENSION = '/index.ts';
-
-/** Maximum clipboard preview length */
-const CLIPBOARD_PREVIEW_MAX_LENGTH = 50;
-
 /** Plugin source indicators in file paths */
 const PLUGIN_SOURCE_INDICATORS = {
   applicationSupport: 'Application Support',
@@ -156,31 +150,6 @@ async function createBlobUrlFromPath(filePath: string): Promise<string> {
 }
 
 /**
- * Truncate text to maximum length with ellipsis
- */
-function truncateText(text: string, maxLength: number): string {
-  return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
-}
-
-/**
- * Create error manifest for failed plugin load
- */
-function createErrorManifest(
-  pluginId: string,
-  error: string
-): PluginManifest {
-  return {
-    id: pluginId,
-    name: pluginId,
-    version: '0.0.0',
-    description: 'Failed to load',
-    author: 'Unknown',
-    permissions: [],
-    triggers: [],
-  };
-}
-
-/**
  * Create error load result
  */
 function createErrorResult(
@@ -188,7 +157,15 @@ function createErrorResult(
   errorMessage: string
 ): PluginLoadResult {
   return {
-    manifest: createErrorManifest(pluginId, errorMessage),
+    manifest: {
+      id: pluginId,
+      name: pluginId,
+      version: '0.0.0',
+      description: 'Failed to load',
+      author: 'Unknown',
+      permissions: [],
+      triggers: [],
+    },
     error: errorMessage,
   };
 }
@@ -251,7 +228,10 @@ function createWrappedAction(
       // Copy string output to clipboard
       if (typeof output === 'string') {
         await invoke('write_clipboard_text', { text: output });
-        const preview = truncateText(output, CLIPBOARD_PREVIEW_MAX_LENGTH);
+        const maxLength = 50;
+        const preview = output.length > maxLength
+          ? `${output.substring(0, maxLength)}...`
+          : output;
         console.log(`${logPrefix(pluginId)} Copied to clipboard: ${preview}`);
       } else {
         console.log(`${logPrefix(pluginId)} Action executed (no clipboard output)`);

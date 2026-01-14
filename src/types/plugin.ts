@@ -146,6 +146,7 @@ export interface Plugin {
   // === From SDK Plugin ===
   manifest: PluginManifest;
   onSearch?: (query: string) => PluginSearchResult[] | Promise<PluginSearchResult[]>;
+  search?: (query: string) => PluginSearchResult[] | Promise<PluginSearchResult[]>;
   onLoad?: () => void | Promise<void>;
   onUnload?: () => void | Promise<void>;
   onEnable?: () => void | Promise<void>;

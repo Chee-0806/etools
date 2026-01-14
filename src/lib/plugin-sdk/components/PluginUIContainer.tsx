@@ -33,7 +33,7 @@ export interface PluginUIContainerProps {
   className?: string;
 }
 
-export const PluginUIContainer = memo(({
+export const PluginUIContainer = memo(function PluginUIContainer({
   title,
   subtitle,
   icon,
@@ -42,7 +42,7 @@ export const PluginUIContainer = memo(({
   isLoading = false,
   error,
   className = '',
-}: PluginUIContainerProps) => {
+}: PluginUIContainerProps) {
   return (
     <div className={`plugin-ui-container ${className}`}>
       <Card variant="elevated" padding="lg" className="plugin-ui-card">
@@ -55,9 +55,7 @@ export const PluginUIContainer = memo(({
           )}
           <div className="plugin-ui-header-content">
             <h2 className="plugin-ui-title">{title}</h2>
-            {subtitle && (
-              <p className="plugin-ui-subtitle">{subtitle}</p>
-            )}
+            {subtitle && <p className="plugin-ui-subtitle">{subtitle}</p>}
           </div>
         </div>
 
@@ -69,28 +67,21 @@ export const PluginUIContainer = memo(({
           </div>
         )}
 
-        {/* Loading State */}
+        {/* Content or Loading State */}
         {isLoading ? (
           <div className="plugin-ui-loading">
             <div className="plugin-ui-spinner" />
             <p>加载中...</p>
           </div>
         ) : (
-          /* Content */
-          <div className="plugin-ui-content">
-            {children}
-          </div>
+          <div className="plugin-ui-content">{children}</div>
         )}
 
         {/* Actions Footer */}
         {actions && !isLoading && (
-          <div className="plugin-ui-actions">
-            {actions}
-          </div>
+          <div className="plugin-ui-actions">{actions}</div>
         )}
       </Card>
     </div>
   );
 });
-
-PluginUIContainer.displayName = 'PluginUIContainer';
