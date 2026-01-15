@@ -149,6 +149,19 @@ pub struct PluginTrigger {
     pub hotkey: Option<String>,
 }
 
+// ============================================================================
+// Plugin Updates
+// ============================================================================
+
+/// Plugin update information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginUpdateInfo {
+    pub package_name: String,       // npm package name (e.g., "@etools-plugin/devtools")
+    pub current_version: String,    // Currently installed version
+    pub latest_version: String,     // Latest version from npm
+    pub has_update: bool,           // Whether an update is available
+}
+
 // Custom deserialization to support both string and object formats
 impl<'de> Deserialize<'de> for PluginTrigger {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

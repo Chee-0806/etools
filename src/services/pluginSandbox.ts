@@ -1,5 +1,5 @@
 /**
- * Plugin Sandbox Service (T094-T098)
+ * Plugin Sandbox Service (v2)
  *
  * Provides isolated execution environment for plugins using Web Workers.
  * Features:
@@ -8,11 +8,11 @@
  * - Permission enforcement (check before API access)
  * - Crash handling (disable plugin after max crashes)
  * - Resource management (worker pool with size limits)
- * - Support for both code string and module path execution
+ * - Support for module-based plugin execution (v2 with actionData)
  */
 
 import type { PluginPermission } from '@/lib/plugin-sdk/types';
-import type { PluginSearchResult } from '@/lib/plugin-sdk/types';
+import type { PluginSearchResultV2, PluginActionData, PluginV2 } from '@/lib/plugin-sdk/v2-types';
 import { invoke } from '@tauri-apps/api/core';
 import { getSandboxMonitor } from './sandboxMonitor';
 
@@ -41,7 +41,7 @@ type ExecuteMessage = CodeExecuteMessage | ModuleExecuteMessage;
 interface ModuleResultMessage {
   type: 'result';
   success: boolean;
-  results: PluginSearchResult[];
+  results: PluginSearchResultV2[];
   error?: string;
   executionTime: number;
 }
@@ -71,21 +71,23 @@ interface NotificationMessage {
 type WorkerMessage = ResultMessage | LogMessage | NotificationMessage;
 
 /**
- * Plugin execution result for module-based plugins
+ * Plugin execution result for module-based plugins (v2)
  */
 export interface PluginModuleExecutionResult {
+  pluginId: string;
   success: boolean;
-  results: PluginSearchResult[];
+  results: PluginSearchResultV2[];
   error?: string;
   executionTime: number;
 }
 
 /**
- * Plugin execution result for code-based plugins
+ * Plugin execution result for code-based plugins (v2)
  */
 export interface PluginCodeExecutionResult {
+  pluginId: string;
+  results: PluginSearchResultV2[];
   success: boolean;
-  output: any;
   error?: string;
   executionTime: number;
 }
@@ -148,7 +150,7 @@ export class PluginSandbox {
   }
 
   /**
-   * Register a plugin in the sandbox (T094)
+   * Register a plugin in the sandbox
    *
    * @param pluginId - Plugin identifier
    * @param permissions - List of granted permissions
@@ -231,7 +233,7 @@ export class PluginSandbox {
   }
 
   /**
-   * Check if plugin has permission (T097)
+   * Check if plugin has permission
    */
   checkPermission(pluginId: string, permission: PluginPermission): boolean {
     const context = this.contexts.get(pluginId);
@@ -250,7 +252,7 @@ export class PluginSandbox {
   }
 
   /**
-   * Execute plugin code in isolated worker (T094, T095, T097)
+   * Execute plugin code in isolated worker
    *
    * @param pluginId - Plugin identifier
    * @param code - Plugin code to execute
@@ -263,7 +265,7 @@ export class PluginSandbox {
     code: string,
     args: any,
     timeout?: number
-  ): Promise<PluginExecutionResult> {
+  ): Promise<PluginCodeExecutionResult> {
     const startTime = performance.now();
 
     // Check if plugin exists and is enabled
@@ -271,6 +273,7 @@ export class PluginSandbox {
 
     if (!context) {
       return {
+        pluginId,
         success: false,
         output: null,
         error: `Plugin ${pluginId} not found in sandbox`,
@@ -280,6 +283,7 @@ export class PluginSandbox {
 
     if (!context.isEnabled) {
       return {
+        pluginId,
         success: false,
         output: null,
         error: `Plugin ${pluginId} is disabled`,
@@ -292,7 +296,7 @@ export class PluginSandbox {
 
     try {
       // Execute with timeout
-      const result = await this.executeInWorker(
+      const result = await this.executePlugin(
         worker,
         pluginId,
         code,
@@ -306,15 +310,16 @@ export class PluginSandbox {
       // Update execution stats
       context.lastExecutionTime = executionTime;
 
-      // Handle crash (T098)
+      // Handle crash
       if (!result.success) {
         const disabled = this.handlePluginCrash(pluginId);
 
         if (disabled) {
           console.error(`[PluginSandbox] Plugin ${pluginId} disabled after too many crashes`);
           return {
+            pluginId,
             success: false,
-            output: null,
+            results: [],
             error: `Plugin ${pluginId} disabled after ${this.config.maxCrashes} crashes. Original error: ${result.error}`,
             executionTime,
           };
@@ -336,7 +341,7 @@ export class PluginSandbox {
   }
 
   /**
-   * Execute plugin module in isolated worker (T095)
+   * Execute plugin module in isolated worker
    *
    * This is the NEW method that executes ES module plugins with true isolation.
    * It loads the plugin module dynamically in a Web Worker and executes its
@@ -389,11 +394,11 @@ export class PluginSandbox {
 
     try {
       // Execute with timeout
-      const result = await this.executeModuleInWorker(
+      const result = await this.executeInWorker(
         worker,
         pluginId,
-        context.pluginPath,
-        query,
+        code,
+        args,
         context.grantedPermissions,
         timeout ?? this.config.defaultTimeout
       );
@@ -406,13 +411,14 @@ export class PluginSandbox {
       // Record execution in monitor
       this.monitor.recordExecution(pluginId, executionTime, result.success);
 
-      // Handle crash (T098)
+      // Handle crash
       if (!result.success) {
         const disabled = this.handlePluginCrash(pluginId);
 
         if (disabled) {
           console.error(`[PluginSandbox] Plugin ${pluginId} disabled after too many crashes`);
           return {
+            pluginId,
             success: false,
             results: [],
             error: `Plugin ${pluginId} disabled after ${this.config.maxCrashes} crashes. Original error: ${result.error}`,
@@ -428,7 +434,10 @@ export class PluginSandbox {
         ...result,
         executionTime,
       };
-
+    } catch (error) {
+      // Handle plugin exceptions
+      console.error(`[PluginSandbox] Error executing ${pluginId}:`, error);
+      throw error;
     } finally {
       // Release worker back to pool
       this.releaseWorker(worker);
@@ -466,8 +475,9 @@ export class PluginSandbox {
     args: any,
     permissions: PluginPermission[],
     timeout: number
-  ): Promise<Omit<PluginExecutionResult, 'executionTime'>> {
+  ): Promise<PluginCodeExecutionResult> {
     return new Promise((resolve, reject) => {
+      const startTime = performance.now();
       // Set up timeout
       const timeoutId = setTimeout(() => {
         worker.terminate();
@@ -478,16 +488,18 @@ export class PluginSandbox {
       const handler = (event: MessageEvent<WorkerMessage>) => {
         const message = event.data;
 
-        switch (message.type) {
-          case 'result':
-            clearTimeout(timeoutId);
-            worker.removeEventListener('message', handler);
-            resolve({
-              success: message.success,
-              output: message.output,
-              error: message.error,
-            });
-            break;
+          switch (message.type) {
+            case 'result':
+              clearTimeout(timeoutId);
+              worker.removeEventListener('message', handler);
+              resolve({
+                pluginId,
+                results: message.output || [],
+                success: message.success,
+                error: message.error,
+                executionTime: performance.now() - startTime,
+              });
+              break;
 
           case 'log':
             // Forward console logs
@@ -536,8 +548,9 @@ export class PluginSandbox {
     query: string,
     permissions: PluginPermission[],
     timeout: number
-  ): Promise<Omit<PluginModuleExecutionResult, 'executionTime'>> {
+  ): Promise<PluginModuleExecutionResult> {
     return new Promise((resolve, reject) => {
+      const startTime = performance.now();
       // Set up timeout
       const timeoutId = setTimeout(() => {
         worker.terminate();
@@ -556,16 +569,20 @@ export class PluginSandbox {
             // Check if this is a module result or code result
             if ('results' in message) {
               resolve({
+                pluginId,
                 success: message.success,
                 results: message.results,
                 error: message.error,
+                executionTime: performance.now() - startTime,
               });
             } else {
               // Code result - convert to module result format
               resolve({
+                pluginId,
                 success: message.success,
                 results: message.output || [],
                 error: message.error,
+                executionTime: performance.now() - startTime,
               });
             }
             break;
@@ -684,7 +701,7 @@ export class PluginSandbox {
   }
 
   /**
-   * Handle plugin crash (T098)
+   * Handle plugin crash
    *
    * @returns true if plugin was disabled
    */

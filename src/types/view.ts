@@ -1,4 +1,4 @@
-export type ViewType = 'search' | 'settings' | 'plugins';
+export type ViewType = 'search' | 'settings' | 'plugins' | 'plugin-ui';
 
 export interface ViewHistoryEntry {
   viewId: ViewType;

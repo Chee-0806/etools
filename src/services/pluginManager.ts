@@ -1,6 +1,19 @@
 /**
  * Plugin Manager Service
  * Frontend service wrapping Tauri commands for plugin management
+ *
+ * 职责范围 (Responsibility Scope):
+ * - 插件 CRUD 操作（启用/禁用/卸载）
+ * - 与 Tauri 后端通信
+ * - 权限管理（授予/撤销）
+ * - 插件健康状态查询
+ * - 插件使用统计
+ * - 插件市场交互（安装/更新）
+ *
+ * 不包括 (NOT responsible for):
+ * - 插件模块加载（由 pluginLoader.ts 负责）
+ * - 插件执行逻辑（由 pluginSandbox.ts 和 workers 负责）
+ * - 插件搜索（由 searchService.ts 负责）
  */
 
 import { invoke } from '@tauri-apps/api/core';
@@ -15,6 +28,7 @@ import type {
   PluginUsageStats,
   PluginCategory,
   PluginPermission,
+  PluginUpdateInfo,
 } from '../types/plugin';
 
 // ============================================================================
@@ -443,15 +457,31 @@ export class MarketplaceService {
 
   /**
    * Check for plugin updates
+   * Returns a list of plugins that have updates available
    */
-  async checkUpdates(): Promise<string[]> {
+  async checkUpdates(): Promise<PluginUpdateInfo[]> {
     try {
-      const updates = await invoke<string[]>('marketplace_check_updates');
+      const updates = await invoke<PluginUpdateInfo[]>('marketplace_check_updates');
       return updates;
     } catch (error) {
       console.error('Failed to check for updates:', error);
       throw new Error(
         `Failed to check updates: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Update a plugin to the latest version
+   */
+  async updatePlugin(packageName: string): Promise<Plugin> {
+    try {
+      const plugin = await invoke<Plugin>('marketplace_update', { packageName });
+      return plugin;
+    } catch (error) {
+      console.error('Failed to update plugin:', error);
+      throw new Error(
+        `Failed to update plugin: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }

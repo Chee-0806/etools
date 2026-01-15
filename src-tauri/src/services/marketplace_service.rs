@@ -381,9 +381,148 @@ impl MarketplaceService {
     }
 
     /// Check for plugin updates
-    pub fn check_updates(&self, _handle: &AppHandle) -> MarketplaceResult<Vec<String>> {
-        // TODO: Implement by comparing installed versions with npm registry
-        Ok(vec![])
+    /// Returns a list of plugins that have updates available
+    pub fn check_updates(&self, handle: &AppHandle) -> MarketplaceResult<Vec<PluginUpdateInfo>> {
+        println!("[Marketplace] Checking for plugin updates...");
+
+        // 1. Get installed plugins from package.json
+        let plugins_dir = handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Failed to get data dir: {}", e))?
+            .join("plugins");
+
+        let package_json_path = plugins_dir.join("package.json");
+
+        // If package.json doesn't exist, no plugins are installed
+        if !package_json_path.exists() {
+            println!("[Marketplace] No plugins installed (package.json not found)");
+            return Ok(vec![]);
+        }
+
+        // 2. Read package.json to get installed plugins
+        let package_json_content = fs::read_to_string(&package_json_path)
+            .map_err(|e| format!("Failed to read package.json: {}", e))?;
+
+        let package_data: Value = serde_json::from_str(&package_json_content)
+            .map_err(|e| format!("Failed to parse package.json: {}", e))?;
+
+        let dependencies = package_data["dependencies"]
+            .as_object()
+            .ok_or("Invalid package.json: missing dependencies")?;
+
+        println!("[Marketplace] Checking updates for {} plugins", dependencies.len());
+
+        let mut update_info_list = Vec::new();
+
+        // 3. For each installed plugin, fetch latest version from npm
+        for (package_name, _version_spec) in dependencies.iter() {
+            println!("[Marketplace] Checking updates for: {}", package_name);
+
+            // Only check @etools-plugin packages
+            if !package_name.starts_with("@etools-plugin/") {
+                println!("[Marketplace] Skipping non-etools-plugin: {}", package_name);
+                continue;
+            }
+
+            // Fetch package metadata from npm registry
+            match self.get_latest_version_from_npm(package_name) {
+                Ok(latest_version) => {
+                    // Get currently installed version from node_modules
+                    let node_modules_dir = plugins_dir.join("node_modules").join(package_name);
+                    let current_version = if node_modules_dir.exists() {
+                        let package_path = node_modules_dir.join("package.json");
+                        if package_path.exists() {
+                            let content = fs::read_to_string(&package_path)
+                                .map_err(|e| format!("Failed to read package/package.json: {}", e))?;
+                            let pkg_json: Value = serde_json::from_str(&content)
+                                .map_err(|e| format!("Failed to parse package/package.json: {}", e))?;
+                            pkg_json["version"]
+                                .as_str()
+                                .unwrap_or("0.0.0")
+                                .to_string()
+                        } else {
+                            "0.0.0".to_string()
+                        }
+                    } else {
+                        println!("[Marketplace] Warning: package not installed in node_modules: {}", package_name);
+                        continue;
+                    };
+
+                    // Compare versions (simple string comparison - should use semver crate in production)
+                    let has_update = current_version != latest_version;
+
+                    if has_update {
+                        println!("[Marketplace] Update available: {} ({} -> {})", package_name, current_version, latest_version);
+                    } else {
+                        println!("[Marketplace] {} is up to date ({})", package_name, current_version);
+                    }
+
+                    update_info_list.push(PluginUpdateInfo {
+                        package_name: package_name.clone(),
+                        current_version,
+                        latest_version,
+                        has_update,
+                    });
+                }
+                Err(e) => {
+                    println!("[Marketplace] Failed to check updates for {}: {}", package_name, e);
+                    // Continue checking other plugins even if one fails
+                    continue;
+                }
+            }
+        }
+
+        // Filter to only include plugins with updates
+        let plugins_with_updates: Vec<PluginUpdateInfo> = update_info_list
+            .into_iter()
+            .filter(|info| info.has_update)
+            .collect();
+
+        println!("[Marketplace] Found {} plugins with updates", plugins_with_updates.len());
+
+        Ok(plugins_with_updates)
+    }
+
+    /// Get the latest version of a package from npm registry
+    fn get_latest_version_from_npm(&self, package_name: &str) -> MarketplaceResult<String> {
+        let url = format!("{}/{}", NPM_REGISTRY_API, package_name);
+
+        println!("[Marketplace] Fetching package info from: {}", url);
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+        let response = client.get(&url)
+            .header("User-Agent", "ETools/1.0")
+            .send()
+            .map_err(|e| format!("Failed to fetch package info from npm: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("npm API returned error for {}: {}", package_name, response.status()));
+        }
+
+        let text = response.text()
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        // Parse the npm registry response
+        // Format: { "versions": { "1.0.0": {...}, "1.1.0": {...} }, "dist-tags": { "latest": "1.1.0" } }
+        let package_data: Value = serde_json::from_str(&text)
+            .map_err(|e| format!("Failed to parse npm response: {}", e))?;
+
+        // Try to get the version from "dist-tags.latest" first
+        let latest_version = package_data["dist-tags"]["latest"]
+            .as_str()
+            .or_else(|| {
+                // Fallback: get the last key from "versions" object
+                package_data["versions"].as_object()
+                    .and_then(|versions| versions.keys().last().map(|s| s.as_str()))
+            })
+            .ok_or("Failed to extract version from npm response")?;
+
+        Ok(latest_version.to_string())
     }
 
     // ========================================================================

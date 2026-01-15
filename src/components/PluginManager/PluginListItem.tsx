@@ -45,6 +45,11 @@ interface PluginListItemProps {
   onUninstall?: () => void;
 
   /**
+   * Callback when update is requested
+   */
+  onUpdate?: () => void;
+
+  /**
    * Callback when item is clicked
    */
   onClick?: () => void;
@@ -61,6 +66,7 @@ const PluginListItem: React.FC<PluginListItemProps> = ({
   onToggleSelect,
   onToggleEnable,
   onUninstall,
+  onUpdate,
   onClick,
 }) => {
   const itemRef = useRef<HTMLDivElement>(null);
@@ -174,7 +180,14 @@ const PluginListItem: React.FC<PluginListItemProps> = ({
           <h3 className="plugin-item-name" id={`plugin-name-${plugin.manifest.id}`}>
             {highlightText(plugin.manifest.name)}
           </h3>
-          <span className="plugin-item-version">{plugin.manifest.version}</span>
+          <div className="plugin-item-version-wrapper">
+            <span className="plugin-item-version">{plugin.manifest.version}</span>
+            {plugin.updateAvailable && (
+              <span className="plugin-update-badge" title={`新版本可用: ${plugin.latestVersion}`}>
+                更新可用
+              </span>
+            )}
+          </div>
         </div>
         <p
           className="plugin-item-description"
@@ -185,6 +198,11 @@ const PluginListItem: React.FC<PluginListItemProps> = ({
         <div className="plugin-item-meta">
           {plugin.manifest.author && (
             <span className="plugin-item-author">作者: {plugin.manifest.author}</span>
+          )}
+          {plugin.updateAvailable && plugin.latestVersion && (
+            <span className="plugin-item-latest-version">
+              最新版本: {plugin.latestVersion}
+            </span>
           )}
         </div>
       </div>
@@ -203,6 +221,20 @@ const PluginListItem: React.FC<PluginListItemProps> = ({
         >
           {plugin.enabled ? '已启用' : '已禁用'}
         </button>
+        {plugin.updateAvailable && onUpdate && (
+          <button
+            className="plugin-update-btn"
+            onClick={(e) => {
+              console.log('[PluginListItem] Update button clicked for', plugin.manifest.id);
+              e.stopPropagation();
+              onUpdate();
+            }}
+            aria-label={getAriaLabel('update', plugin.manifest.name)}
+            title={`更新到 ${plugin.latestVersion || '最新版本'}`}
+          >
+            更新
+          </button>
+        )}
         {onUninstall && (
           <button
             className="plugin-uninstall-btn"
@@ -214,7 +246,7 @@ const PluginListItem: React.FC<PluginListItemProps> = ({
             aria-label={getAriaLabel('uninstall', plugin.manifest.name)}
             title="卸载插件"
           >
-            🗑️ 卸载
+            卸载
           </button>
         )}
       </div>

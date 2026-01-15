@@ -7,15 +7,16 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { getErrorLogger } from "./services/errorLogger";
-
-const errorLogger = getErrorLogger();
+import { errorHandler, ErrorCategory } from "./services/errorHandler";
 
 // Setup global error handlers (outside React)
 const setupGlobalErrorHandlers = () => {
   // Handle uncaught errors
   window.addEventListener('error', (event) => {
-    errorLogger.log(event.error || new Error(event.message));
+    const error = event.error instanceof Error
+      ? event.error
+      : new Error(event.message);
+    errorHandler.logRaw(error);
   });
 
   // Handle unhandled promise rejections
@@ -23,7 +24,7 @@ const setupGlobalErrorHandlers = () => {
     const error = event.reason instanceof Error
       ? event.reason
       : new Error(String(event.reason));
-    errorLogger.log(error);
+    errorHandler.logRaw(error);
   });
 
   // Handle resource loading errors
@@ -36,7 +37,7 @@ const setupGlobalErrorHandlers = () => {
       if (src && src.length <= 3 && /^[\p{Emoji}\p{Symbol}]+$/u.test(src)) {
         return;
       }
-      errorLogger.warn(`Failed to load resource: ${target.tagName} ${src}`);
+      errorHandler.warn(`Failed to load resource: ${target.tagName} ${src}`);
     }
   }, true); // Use capture phase
 };
@@ -46,7 +47,7 @@ setupGlobalErrorHandlers();
 
 // Custom error handler for ErrorBoundary
 const handleGlobalError = (error: Error, errorInfo: React.ErrorInfo) => {
-  errorLogger.log(error, errorInfo.componentStack || undefined);
+  errorHandler.logRaw(error, errorInfo.componentStack || undefined);
 };
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

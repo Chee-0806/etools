@@ -5,7 +5,12 @@
  * 1. Data computation in Worker (isolated, safe)
  * 2. Action execution in Main Thread (access to APIs)
  * 3. Communication via plain data (no functions)
+ *
+ * Base types (PluginManifest, PluginPermission, PluginSetting) are shared with v1.
+ * See @/lib/plugin-sdk/types.ts for shared type definitions.
  */
+
+import type { PluginManifest, PluginPermission, PluginSetting } from './types';
 
 /**
  * Plugin action data - serializable data returned by onSearch
@@ -51,6 +56,62 @@ export interface PluginActionData {
 
   /** Optional metadata */
   metadata?: Record<string, string | number | boolean>;
+}
+
+/**
+ * Plugin search result (v2) - without action function
+ * The action function is created on main thread based on actionData
+ */
+export interface PluginSearchResultV2 {
+  /** Unique result ID */
+  id: string;
+
+  /** Display title */
+  title: string;
+
+  /** Description/subtitle */
+  description?: string;
+
+  /** Icon (emoji or URL) */
+  icon?: string;
+
+  /** Action data (serializable, no functions) */
+  actionData: PluginActionData;
+
+  /** Relevance score (0-1) */
+  score?: number;
+
+  /** Optional metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Plugin interface (v2)
+ * onSearch returns PluginSearchResultV2[] (without action functions)
+ */
+export interface PluginV2 {
+  manifest: PluginManifest;
+  onSearch(query: string): Promise<PluginSearchResultV2[]>;
+  init?(): Promise<void>;
+  onDestroy?(): Promise<void>;
+}
+
+/**
+ * Action executor - runs on main thread based on actionData
+ * This is implemented by framework, not by plugins
+ */
+export interface ActionExecutor {
+  execute(actionData: PluginActionData): Promise<void>;
+}
+
+/**
+ * Worker execution result
+ */
+export interface WorkerExecutionResult {
+  success: boolean;
+  results: PluginSearchResultV2[];
+  error?: string;
+  executionTime: number;
 }
 
 /**

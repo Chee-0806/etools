@@ -17,6 +17,7 @@ export const getAriaLabel = (action: string, pluginName: string): string => {
     enable: `启用插件 ${pluginName}`,
     disable: `禁用插件 ${pluginName}`,
     uninstall: `卸载插件 ${pluginName}`,
+    update: `更新插件 ${pluginName}`,
     select: `选择插件 ${pluginName}`,
     view_details: `查看 ${pluginName} 详情`,
   };

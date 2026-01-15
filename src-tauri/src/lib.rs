@@ -11,12 +11,9 @@ use cmds::app::{AppState, get_installed_apps, launch_app, track_app_usage, get_a
 use cmds::search::{SearchState, unified_search, get_search_stats, search_files, search_browser_data, update_browser_cache, index_files, get_file_index_stats, start_file_indexer, stop_file_indexer};
 use cmds::clipboard::{get_clipboard_history, get_clipboard_item, paste_clipboard_item, delete_clipboard_item, clear_clipboard_history, get_clipboard_settings, set_clipboard_settings, search_clipboard, write_clipboard_text};
 use cmds::plugins::{
-    // ✅ 安全加固：移除 plugin_list，只允许从市场安装插件
-    // plugin_list,  // 已禁用 - 不再允许从本地 plugins/ 目录加载插件
     install_plugin, uninstall_plugin, enable_plugin, disable_plugin,
     get_plugin_manifest, reload_plugin, grant_plugin_permission, revoke_plugin_permission,
     get_plugin_permissions, set_plugin_setting, get_plugin_setting, validate_plugin_manifest,
-    check_plugin_updates, download_plugin, rate_plugin,
     // New commands
     get_plugin_health, check_plugin_health, get_plugin_usage_stats,
     bulk_enable_plugins, bulk_disable_plugins, bulk_uninstall_plugins,
@@ -536,9 +533,6 @@ pub fn run() {
             set_plugin_setting,
             get_plugin_setting,
             validate_plugin_manifest,
-            check_plugin_updates,
-            download_plugin,
-            rate_plugin,
             // New plugin commands
             get_plugin_health,
             check_plugin_health,

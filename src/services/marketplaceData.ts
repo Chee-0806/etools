@@ -2,32 +2,65 @@
  * Marketplace Data Service
  * 插件市场数据
  *
- * 说明：从 npm @etools-plugin 组织加载插件
+ * 说明：从 npm @etools-plugin 组织动态加载插件
  */
 
 import type { MarketplacePlugin, PluginCategory } from '../types/plugin';
 import { marketplaceService } from './pluginManager';
 
 // ============================================================================
-// 插件数据
+// 类型转换
 // ============================================================================
 
-const plugins: MarketplacePlugin[] = [
-  {
-    name: '@etools-plugin/devtools',
-    pluginName: '开发者工具',
-    description: 'JSON 格式化、Base64 编解码、URL 编码等开发工具',
-    logo: 'https://raw.githubusercontent.com/etools-team/devtools-plugin/main/icon.png',
-    author: 'ETools Team',
-    homepage: 'https://github.com/etools-team/devtools-plugin',
-    version: '1.0.0',
-    downloads: 0,
-    features: ['JSON 格式化', 'Base64 编解码', 'URL 编解码'],
-    keywords: ['json', 'base64', 'url', 'developer', 'tools'],
-    category: 'developer',
-    tags: ['developer', 'tools'],
-  },
-];
+/**
+ * 转换后端 MarketplacePlugin 到前端 MarketplacePlugin
+ * Tauri 会自动将 snake_case 转换为 camelCase
+ */
+function convertBackendToFrontend(backend: any): MarketplacePlugin {
+  // 构造 npm 包名
+  const packageName = `@etools-plugin/${backend.id}`;
+
+  // 如果 backend.icon 存在且非 null，使用它
+  // 否则根据分类生成默认 emoji 图标
+  let logo = backend.icon;
+  if (!logo) {
+    const categoryEmojis: Record<string, string> = {
+      productivity: '⚡',
+      developer: '🛠️',
+      utilities: '🔧',
+      search: '🔍',
+      media: '🎬',
+      integration: '🔗',
+    };
+    logo = categoryEmojis[backend.category] || '📦';
+  }
+
+  return {
+    name: packageName,                        // npm 包名
+    pluginName: backend.name,                  // 显示名称
+    description: backend.description,
+    logo,
+    author: backend.author,
+    homepage: backend.homepage || undefined,
+    version: backend.latestVersion || backend.version,  // 使用 latestVersion（市场显示最新版本）
+    downloads: backend.downloadCount || backend.download_count || 0,
+    features: (backend.tags || []).slice(0, 5),  // 从 tags 生成 features
+    keywords: backend.tags || [],
+    category: backend.category as PluginCategory,
+    tags: backend.tags || [],
+    permissions: backend.permissions || [],
+    platform: undefined,
+    screenshots: backend.screenshots || undefined,
+  };
+}
+
+// ============================================================================
+// 插件数据缓存
+// ============================================================================
+
+let pluginsCache: MarketplacePlugin[] | null = null;
+let lastCacheTime: number = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 分钟缓存
 
 // ============================================================================
 // 导出的服务方法
@@ -35,22 +68,62 @@ const plugins: MarketplacePlugin[] = [
 
 /**
  * Marketplace Data Service
+ * 从 NPM Registry 动态加载插件
  */
 export const marketplaceDataService = {
   /**
+   * 获取所有插件（从 NPM Registry）
+   */
+  async getAllPlugins(): Promise<MarketplacePlugin[]> {
+    const now = Date.now();
+
+    // 检查缓存
+    if (pluginsCache && (now - lastCacheTime) < CACHE_DURATION) {
+      console.log('[MarketplaceData] Using cached plugins');
+      return pluginsCache;
+    }
+
+    try {
+      console.log('[MarketplaceData] Fetching plugins from NPM Registry...');
+      const result = await marketplaceService.getMarketplacePlugins();
+
+      // 转换后端格式到前端格式
+      const plugins = result.plugins.map(convertBackendToFrontend);
+
+      // 更新缓存
+      pluginsCache = plugins;
+      lastCacheTime = now;
+
+      console.log(`[MarketplaceData] Loaded ${plugins.length} plugins from NPM`);
+      return plugins;
+    } catch (error) {
+      console.error('[MarketplaceData] Failed to fetch from NPM:', error);
+      // 如果缓存存在，返回缓存
+      if (pluginsCache) {
+        console.log('[MarketplaceData] Falling back to cached plugins');
+        return pluginsCache;
+      }
+      throw error;
+    }
+  },
+
+  /**
    * 获取所有分类的插件
    */
-  async getAllCategories(): Promise<Record<PluginCategory, MarketplacePlugin[]>> {
+  async getAllCategories(): Promise<Record<string, MarketplacePlugin[]>> {
+    const allPlugins = await this.getAllPlugins();
+
     const categorized: Record<string, MarketplacePlugin[]> = {
-      all: plugins,
+      all: allPlugins,
       productivity: [],
       developer: [],
       utilities: [],
-      entertainment: [],
+      search: [],
+      media: [],
+      integration: [],
     };
 
-    // 按分类分组
-    for (const plugin of plugins) {
+    for (const plugin of allPlugins) {
       const category = plugin.category || 'utilities';
       if (!categorized[category]) {
         categorized[category] = [];
@@ -58,56 +131,55 @@ export const marketplaceDataService = {
       categorized[category].push(plugin);
     }
 
-    return categorized as Record<PluginCategory, MarketplacePlugin[]>;
+    return categorized;
   },
 
   /**
    * 获取指定分类的插件
    */
-  async getCategoryPlugins(category: PluginCategory): Promise<MarketplacePlugin[]> {
+  async getCategoryPlugins(category: string): Promise<MarketplacePlugin[]> {
     if (category === 'all') {
-      return plugins;
+      return this.getAllPlugins();
     }
-    return plugins.filter(p => p.category === category);
+
+    const allPlugins = await this.getAllPlugins();
+    return allPlugins.filter(p => p.category === category);
   },
 
   /**
-   * 获取所有插件（扁平化）
+   * 搜索插件（后端搜索）
    */
-  async getAllPlugins(): Promise<MarketplacePlugin[]> {
-    return plugins;
-  },
+  async searchPlugins(query: string, options?: { category?: PluginCategory }): Promise<MarketplacePlugin[]> {
+    try {
+      console.log(`[MarketplaceData] Searching for: ${query}`);
+      const result = await marketplaceService.searchMarketplace(query, options);
 
-  /**
-   * 搜索插件
-   */
-  async searchPlugins(query: string): Promise<MarketplacePlugin[]> {
-    const lowerQuery = query.toLowerCase();
-    return plugins.filter(
-      p =>
-        p.pluginName.toLowerCase().includes(lowerQuery) ||
-        p.description.toLowerCase().includes(lowerQuery) ||
-        p.name.toLowerCase().includes(lowerQuery) ||
-        p.keywords?.some(k => k.toLowerCase().includes(lowerQuery))
-    );
+      // 转换后端格式到前端格式
+      const plugins = result.plugins.map((p: any) => convertBackendToFrontend(p));
+
+      console.log(`[MarketplaceData] Search returned ${plugins.length} plugins`);
+      return plugins;
+    } catch (error) {
+      console.error('[MarketplaceData] Search failed:', error);
+      throw error;
+    }
   },
 
   /**
    * 获取分类元数据（名称、图标等）
    */
-  getCategoryInfo(category: PluginCategory): {
+  getCategoryInfo(category: string): {
     categoryName: string;
     categoryIcon: string;
   } {
-    const categoryMetadata: Record<
-      PluginCategory,
-      { categoryName: string; categoryIcon: string }
-    > = {
+    const categoryMetadata: Record<string, { categoryName: string; categoryIcon: string }> = {
       all: { categoryName: '全部插件', categoryIcon: '📦' },
       productivity: { categoryName: '生产力', categoryIcon: '⚡' },
       developer: { categoryName: '开发工具', categoryIcon: '👨‍💻' },
       utilities: { categoryName: '实用工具', categoryIcon: '🔧' },
-      entertainment: { categoryName: '娱乐', categoryIcon: '🎮' },
+      search: { categoryName: '搜索增强', categoryIcon: '🔍' },
+      media: { categoryName: '媒体处理', categoryIcon: '🎬' },
+      integration: { categoryName: '第三方集成', categoryIcon: '🔗' },
     };
 
     return categoryMetadata[category] || { categoryName: category, categoryIcon: '📦' };
@@ -127,6 +199,15 @@ export const marketplaceDataService = {
   async isInstalled(pluginName: string): Promise<boolean> {
     // 实际检查逻辑在 pluginManager.ts 中处理
     return false;
+  },
+
+  /**
+   * 清除缓存
+   */
+  clearCache(): void {
+    console.log('[MarketplaceData] Clearing cache');
+    pluginsCache = null;
+    lastCacheTime = 0;
   },
 };
 

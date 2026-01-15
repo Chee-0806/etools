@@ -103,6 +103,36 @@
   border-radius: var(--radius-sm);
 }
 
+.plugin-item-version-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.plugin-update-badge {
+  font-size: var(--font-size-xs);
+  color: rgb(var(--color-text-inverse));
+  padding: var(--spacing-1) var(--spacing-2);
+  background-color: rgb(var(--color-warning));
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-medium);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.plugin-item-latest-version {
+  color: rgb(var(--color-accent-primary));
+  font-weight: var(--font-weight-medium);
+}
+
 .plugin-item-description {
   margin: 0;
   font-size: var(--font-size-sm);
@@ -166,6 +196,33 @@
 .plugin-toggle-btn.disabled {
   background-color: rgb(var(--color-bg-tertiary));
   color: rgb(var(--color-text-tertiary));
+}
+
+/* Update Button */
+.plugin-update-btn {
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid rgb(var(--color-accent-primary));
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--easing-default);
+  background-color: rgb(var(--color-accent-primary));
+  color: rgb(var(--color-text-inverse));
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.plugin-update-btn:hover {
+  background-color: rgba(var(--color-accent-primary), 0.9);
+  border-color: rgba(var(--color-accent-primary), 0.8);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(var(--color-accent-primary), 0.3);
+}
+
+.plugin-update-btn:active {
+  transform: translateY(0);
 }
 
 /* Uninstall Button */

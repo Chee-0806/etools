@@ -56,6 +56,11 @@ interface PluginListProps {
   onUninstall?: (pluginId: string) => void;
 
   /**
+   * Callback when plugin is updated
+   */
+  onUpdate?: (pluginId: string) => void;
+
+  /**
    * Callback when plugin is clicked
    */
   onPluginClick?: (plugin: Plugin) => void;
@@ -84,6 +89,7 @@ const PluginList: React.FC<PluginListProps> = ({
   onToggleSelect,
   onToggleEnable,
   onUninstall,
+  onUpdate,
   onPluginClick,
   sortBy = 'name',
   loadingSkeleton = false,
@@ -225,6 +231,7 @@ const PluginList: React.FC<PluginListProps> = ({
           onToggleSelect={() => onToggleSelect?.(plugin.manifest.id)}
           onToggleEnable={() => onToggleEnable?.(plugin.manifest.id)}
           onUninstall={() => onUninstall?.(plugin.manifest.id)}
+          onUpdate={() => onUpdate?.(plugin.manifest.id)}
           onClick={() => onPluginClick?.(plugin)}
         />
       ))}

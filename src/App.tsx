@@ -28,6 +28,7 @@ import '@/styles/components/SearchView.css';
 import '@/styles/components/SettingsView.css';
 import '@/styles/components/ResultList.css';
 import '@/styles/components/PluginManager/PluginManager.css';
+import '@/styles/components/PluginUIView.css';
 
 function App() {
   useEffect(() => {

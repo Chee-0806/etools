@@ -1,5 +1,5 @@
 /**
- * Plugin SDK Implementation
+ * Plugin SDK Implementation (v2)
  * Provides plugin developers with APIs to extend the application
  */
 
@@ -9,13 +9,16 @@ import type {
   PluginContext,
   PluginManifest,
   PluginPermission,
-  PluginSearchResult,
   PluginSDK,
 } from './types';
+import type { PluginSearchResultV2 } from './v2-types';
 import { PluginCommands } from './types';
 
 // Re-export UI components for plugin developers
 export * from './ui';
+
+// Re-export v2 types for convenience
+export type { PluginSearchResultV2, PluginActionData, PluginV2 } from './v2-types';
 
 /**
  * Create plugin context for a given plugin
@@ -86,17 +89,17 @@ function createPluginContext(manifest: PluginManifest): PluginContext {
   // Add conditional APIs based on permissions
 
   // Clipboard API
-  if (manifest.permissions.includes('read_clipboard') || manifest.permissions.includes('write_clipboard')) {
+  if (manifest.permissions.includes('read:clipboard') || manifest.permissions.includes('write:clipboard')) {
     context.clipboard = {
       readText: async () => {
-        if (!manifest.permissions.includes('read_clipboard')) {
-          throw new Error('Missing read_clipboard permission');
+        if (!manifest.permissions.includes('read:clipboard')) {
+          throw new Error('Missing read:clipboard permission');
         }
         return await invoke('plugin_clipboard_read');
       },
       writeText: async (text: string) => {
-        if (!manifest.permissions.includes('write_clipboard')) {
-          throw new Error('Missing write_clipboard permission');
+        if (!manifest.permissions.includes('write:clipboard')) {
+          throw new Error('Missing write:clipboard permission');
         }
         await invoke('plugin_clipboard_write', { text });
       },
@@ -104,17 +107,17 @@ function createPluginContext(manifest: PluginManifest): PluginContext {
   }
 
   // File API
-  if (manifest.permissions.includes('read_files') || manifest.permissions.includes('write_files')) {
+  if (manifest.permissions.includes('read:files') || manifest.permissions.includes('write:files')) {
     context.fs = {
       readText: async (path: string) => {
-        if (!manifest.permissions.includes('read_files')) {
-          throw new Error('Missing read_files permission');
+        if (!manifest.permissions.includes('read:files')) {
+          throw new Error('Missing read:files permission');
         }
         return await invoke('plugin_fs_read', { path });
       },
       writeText: async (path: string, content: string) => {
-        if (!manifest.permissions.includes('write_files')) {
-          throw new Error('Missing write_files permission');
+        if (!manifest.permissions.includes('write:files')) {
+          throw new Error('Missing write:files permission');
         }
         await invoke('plugin_fs_write', { path, content });
       },
@@ -122,7 +125,7 @@ function createPluginContext(manifest: PluginManifest): PluginContext {
   }
 
   // Network API
-  if (manifest.permissions.includes('network')) {
+  if (manifest.permissions.includes('network:request')) {
     context.http = {
       get: async (url: string) => {
         return await invoke('plugin_http_get', { url });
@@ -134,7 +137,7 @@ function createPluginContext(manifest: PluginManifest): PluginContext {
   }
 
   // Shell API
-  if (manifest.permissions.includes('shell')) {
+  if (manifest.permissions.includes('shell:execute')) {
     context.shell = {
       open: async (path: string) => {
         await invoke('plugin_shell_open', { path });
@@ -146,7 +149,7 @@ function createPluginContext(manifest: PluginManifest): PluginContext {
   }
 
   // Notification API
-  if (manifest.permissions.includes('notifications')) {
+  if (manifest.permissions.includes('show:notification')) {
     context.notify = async (title: string, message: string) => {
       await invoke('plugin_notify', { title, message });
     };
@@ -156,16 +159,16 @@ function createPluginContext(manifest: PluginManifest): PluginContext {
 }
 
 /**
- * Global plugin registry
+ * Global plugin registry (v2)
  */
 const pluginRegistry = new Map<string, { plugin: Plugin; context: PluginContext }>();
 
 /**
- * Plugin SDK implementation
+ * Plugin SDK implementation (v2)
  */
 export const pluginSDK: PluginSDK = {
   /**
-   * Register a plugin
+   * Register a plugin (v2)
    */
   register: async (plugin: Plugin) => {
     const { manifest } = plugin;
@@ -278,10 +281,11 @@ export const pluginSDK: PluginSDK = {
 };
 
 /**
- * Search all plugins for results
+ * Search all plugins for results (v2)
+ * Returns PluginSearchResultV2[] with actionData
  */
-export async function searchPlugins(query: string): Promise<PluginSearchResult[]> {
-  const results: PluginSearchResult[] = [];
+export async function searchPlugins(query: string): Promise<PluginSearchResultV2[]> {
+  const results: PluginSearchResultV2[] = [];
 
   for (const [pluginId, { plugin, context }] of pluginRegistry) {
     // Check if query matches any trigger

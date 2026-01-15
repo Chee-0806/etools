@@ -3,10 +3,11 @@ import { useViewManagerStore } from '@/stores/viewManagerStore';
 import { SearchView } from './views/SearchView';
 import { SettingsView } from './views/SettingsView';
 import { PluginsView } from './views/PluginsView';
+import { PluginUIView } from './views/PluginUIView';
 // ViewContainer.css 已在 App.tsx 中导入，这里不需要重复导入
 
 export function ViewContainer() {
-  const { currentView, direction } = useViewManagerStore();
+  const { currentView, direction, pluginViewData } = useViewManagerStore();
 
   useEffect(() => {
     console.log('[ViewContainer] Current view:', currentView, 'Direction:', direction);
@@ -36,6 +37,14 @@ export function ViewContainer() {
           className={`view view--${direction}`}
         >
           <PluginsView />
+        </div>
+      )}
+      {currentView === 'plugin-ui' && (
+        <div
+          data-view="plugin-ui"
+          className={`view view--${direction}`}
+        >
+          <PluginUIView pluginId={pluginViewData?.pluginId} toolId={pluginViewData?.toolId} />
         </div>
       )}
     </div>

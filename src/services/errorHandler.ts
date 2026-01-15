@@ -1,7 +1,16 @@
 /**
  * Error Handler Service
- * Centralized error handling for responsive window features
+ * Unified error handling with categorization, logging, and Tauri integration
+ *
+ * Features:
+ * - Error categorization (ErrorCategory, ErrorSeverity)
+ * - Error statistics and history
+ * - Console logging with severity-based methods
+ * - Tauri backend logging integration
+ * - Global error tracking
  */
+
+import { invoke } from '@tauri-apps/api/core';
 
 export enum ErrorCategory {
   SCREEN_DETECTION = 'SCREEN_DETECTION',
@@ -10,6 +19,9 @@ export enum ErrorCategory {
   STATE_MANAGEMENT = 'STATE_MANAGEMENT',
   NETWORK = 'NETWORK',
   UNKNOWN = 'UNKNOWN',
+  GLOBAL_ERROR = 'GLOBAL_ERROR',
+  REJECTION = 'REJECTION',
+  RESOURCE_LOAD = 'RESOURCE_LOAD',
 }
 
 export enum ErrorSeverity {
@@ -26,7 +38,18 @@ export interface AppError {
   code?: string;
   timestamp: number;
   stack?: string;
+  componentStack?: string;
   context?: Record<string, any>;
+}
+
+type ErrorLogType = 'error' | 'warning' | 'info';
+
+interface ErrorLog {
+  timestamp: string;
+  message: string;
+  stack?: string;
+  componentStack?: string;
+  type: ErrorLogType;
 }
 
 class ErrorHandlerImpl {
@@ -34,12 +57,11 @@ class ErrorHandlerImpl {
   private maxErrors = 100; // Keep last 100 errors
 
   /**
-   * Log an error
+   * Log an error (categorized)
    */
   log(error: AppError): void {
     this.errors.push(error);
 
-    // Keep only last maxErrors
     if (this.errors.length > this.maxErrors) {
       this.errors = this.errors.slice(-this.maxErrors);
     }
@@ -48,10 +70,62 @@ class ErrorHandlerImpl {
     const logMethod = this.getLogMethod(error.severity);
     logMethod(`[${error.category}] ${error.message}`, error.context);
 
-    // In production, send to error tracking service
+    // Log to Tauri backend for all errors
+    this.logToBackend(error);
+
     if (error.severity === ErrorSeverity.CRITICAL) {
       this.reportCriticalError(error);
     }
+  }
+
+  /**
+   * Log raw error with optional component stack (for ErrorBoundary)
+   */
+  logRaw(error: Error, componentStack?: string): void {
+    const appError: AppError = {
+      category: ErrorCategory.GLOBAL_ERROR,
+      severity: this.inferSeverity(error),
+      message: error.message,
+      timestamp: Date.now(),
+      stack: error.stack,
+      componentStack,
+    };
+
+    this.log(appError);
+  }
+
+  /**
+   * Log warning message
+   */
+  warn(message: string): void {
+    const log: ErrorLog = {
+      timestamp: new Date().toISOString(),
+      message,
+      type: 'warning',
+    };
+
+    console.group(`[WARNING] ${log.timestamp}`);
+    console.warn(log.message);
+    console.groupEnd();
+
+    this.logToBackendRaw(log);
+  }
+
+  /**
+   * Log info message
+   */
+  info(message: string): void {
+    const log: ErrorLog = {
+      timestamp: new Date().toISOString(),
+      message,
+      type: 'info',
+    };
+
+    console.group(`[INFO] ${log.timestamp}`);
+    console.info(log.message);
+    console.groupEnd();
+
+    this.logToBackendRaw(log);
   }
 
   /**
@@ -140,17 +214,14 @@ class ErrorHandlerImpl {
    * Infer error severity from error type
    */
   private inferSeverity(error: unknown): ErrorSeverity {
-    // Network errors
     if (error instanceof TypeError && error.message.includes('fetch')) {
       return ErrorSeverity.MEDIUM;
     }
 
-    // Tauri invocation errors
     if (error instanceof Error && error.message.includes('Tauri invocation')) {
       return ErrorSeverity.HIGH;
     }
 
-    // Default to medium
     return ErrorSeverity.MEDIUM;
   }
 
@@ -172,14 +243,47 @@ class ErrorHandlerImpl {
   }
 
   /**
+   * Log AppError to Tauri backend
+   */
+  private async logToBackend(error: AppError): Promise<void> {
+    try {
+      const log: ErrorLog = {
+        timestamp: new Date(error.timestamp).toISOString(),
+        message: error.message,
+        stack: error.stack,
+        componentStack: error.componentStack,
+        type: error.severity === ErrorSeverity.LOW ? 'info' : 'error',
+      };
+
+      await this.logToBackendRaw(log);
+    } catch (e) {
+      console.debug('Could not log to backend:', e);
+    }
+  }
+
+  /**
+   * Log ErrorLog to Tauri backend
+   */
+  private async logToBackendRaw(log: ErrorLog): Promise<void> {
+    try {
+      await invoke('log_error', {
+        message: log.message,
+        stack: log.stack || '',
+        component_stack: log.componentStack || '',
+        timestamp: log.timestamp,
+      });
+    } catch (e) {
+      console.debug('Could not log to backend:', e);
+    }
+  }
+
+  /**
    * Report critical error to error tracking service
    * TODO: Integrate with Sentry or similar service
    */
   private reportCriticalError(error: AppError): void {
-    // In production, send to error tracking service
     console.error('[CRITICAL ERROR]', error);
 
-    // TODO: Send to backend for logging
     // TODO: Send to error tracking service (Sentry, etc.)
   }
 }

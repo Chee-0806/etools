@@ -1,22 +1,34 @@
 /**
- * Plugin Types
+ * Plugin Types (v2)
  * Type definitions for plugin system
+ *
+ * This file extends base SDK types (from @/lib/plugin-sdk/types)
+ * with runtime state and application-specific fields.
+ *
+ * All plugins use v2 API:
+ * - PluginSearchResult with actionData (no action functions)
+ * - onSearch returns PluginSearchResultV2[]
  */
 
-// Import PluginPermission for internal use (also re-exported below)
-import type { PluginPermission, PluginManifest, PluginSearchResult } from '@/lib/plugin-sdk/types';
-
-// Re-export types from plugin-sdk
+// Import and re-export base types from plugin-sdk (v2)
 export type {
   PluginManifest,
   PluginPermission,
-  PluginSearchResult,
   PluginContext,
   Plugin as SDKPlugin,
   PluginSDK
 } from '@/lib/plugin-sdk/types';
 
-  // ============================================================================
+// Import v2 types
+export type {
+  PluginSearchResultV2,
+  PluginActionData,
+  PluginV2
+} from '@/lib/plugin-sdk/v2-types';
+
+// ============================================================================
+// Extended Plugin Types (with runtime state)
+// ============================================================================
 // Extended Plugin Types (with runtime state)
 // ============================================================================
 
@@ -139,21 +151,17 @@ export interface PluginAbbreviation {
 }
 
 /**
- * Extended Plugin interface with runtime state
- * Builds on Plugin from SDK, adding runtime state
+ * Extended Plugin interface with runtime state (v2)
+ * Extends SDKPlugin with runtime state fields
+ *
+ * v2 Plugin must implement onSearch returning PluginSearchResultV2[]
  */
-export interface Plugin {
-  // === From SDK Plugin ===
+export interface Plugin extends Omit<SDKPlugin, 'manifest'> {
+  // === Shared with SDK Plugin ===
   manifest: PluginManifest;
-  onSearch?: (query: string) => PluginSearchResult[] | Promise<PluginSearchResult[]>;
-  search?: (query: string) => PluginSearchResult[] | Promise<PluginSearchResult[]>;
-  onLoad?: () => void | Promise<void>;
-  onUnload?: () => void | Promise<void>;
-  onEnable?: () => void | Promise<void>;
-  onDisable?: () => void | Promise<void>;
-  ui?: {
-    component: React.ComponentType<any>;
-  };
+
+  // === v2 specific: onSearch returns PluginSearchResultV2[] ===
+  onSearch(query: string): Promise<PluginSearchResultV2[]>;
 
   // === Runtime state (added by plugin manager) ===
   enabled?: boolean;
@@ -165,18 +173,10 @@ export interface Plugin {
 
   // === User-defined abbreviations (custom shortcuts for quick search) ===
   abbreviations?: PluginAbbreviation[];
-}
 
-/**
- * Plugin setting definition
- */
-export interface PluginSetting {
-  key: string;
-  label: string;
-  type: 'string' | 'number' | 'boolean' | 'select';
-  default: string | number | boolean;
-  options?: { label: string; value: string | number }[];
-  description?: string;
+  // === Update information (for marketplace plugins) ===
+  updateAvailable?: boolean;           // Whether an update is available
+  latestVersion?: string;              // Latest version from npm
 }
 
 // ============================================================================
@@ -238,43 +238,6 @@ export interface MarketplacePlugin {
   installing?: boolean;          // 是否正在安装（前端字段）
 }
 
-/**
- * Legacy MarketplacePlugin interface (兼容旧代码，已废弃)
- * @deprecated 使用新的 MarketplacePlugin 接口
- */
-export interface MarketplacePluginLegacy {
-  // === From PluginManifest ===
-  id: string;
-  name: string;
-  version: string;
-  description: string;
-  author: string;
-  permissions: PluginPermission[];
-  triggers: string[];
-  settings?: PluginSetting[];
-  icon?: string;
-  homepage?: string;
-  repository?: string;
-
-  // === Market-specific fields ===
-  downloadCount: number;
-  rating: number; // 0-5
-  ratingCount: number;
-  category: PluginCategory;
-
-  // === Installation state ===
-  installed: boolean;
-  installedVersion?: string;
-  updateAvailable: boolean;
-  latestVersion: string;
-
-  // === Metadata ===
-  screenshots?: string[];
-  tags: string[];
-  publishedAt: number; // timestamp (ms)
-  updatedAt: number; // timestamp (ms)
-}
-
 // ============================================================================
 // Bulk Operation Types
 // ============================================================================
@@ -317,6 +280,20 @@ export interface BulkOperationResult {
   pluginId: string;
   success: boolean;
   error?: string;
+}
+
+// ============================================================================
+// Plugin Update Types
+// ============================================================================
+
+/**
+ * Plugin update information
+ */
+export interface PluginUpdateInfo {
+  packageName: string;       // npm package name (e.g., "@etools-plugin/devtools")
+  currentVersion: string;    // Currently installed version
+  latestVersion: string;     // Latest version from npm
+  hasUpdate: boolean;        // Whether an update is available
 }
 
 // ============================================================================

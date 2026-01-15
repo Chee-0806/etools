@@ -276,23 +276,36 @@ async function searchPluginAbbreviations(query: string): Promise<SearchResult[]>
  */
 async function searchPlugins(query: string): Promise<SearchResult[]> {
   try {
-    const pluginResults = await pluginLoader.searchByTrigger(query);
+    const v2Results = await pluginLoader.searchByTrigger(query);
 
-    return pluginResults
-      .filter(pr => pr.action)
-      .map((pr) => ({
-        id: pr.id,
-        title: pr.title,
-        subtitle: pr.description,
-        icon: pr.icon,
+    return v2Results.map((v2) => {
+      const actionData = v2.actionData;
+      const isOpenUI = actionData?.type === 'open-ui';
+
+      return {
+        id: v2.id,
+        title: v2.title,
+        subtitle: v2.description,
+        icon: v2.icon,
         type: 'plugin' as const,
         score: 0.9,
+        metadata: {
+          pluginId: actionData?.pluginId,
+          actionData,
+        },
         action: async () => {
-          if (pr.action) {
-            await pr.action();
+          if (isOpenUI) {
+            const { useViewManagerStore } = await import('@/stores/viewManagerStore');
+            const { navigateToView } = useViewManagerStore.getState();
+            await navigateToView('plugin-ui', true, {
+              pluginId: actionData?.pluginId,
+              toolId: actionData?.toolId,
+              query: actionData?.query,
+            });
           }
         },
-      }));
+      };
+    });
   } catch (e) {
     console.error('[useSearch] Plugin search error:', e);
     return [];

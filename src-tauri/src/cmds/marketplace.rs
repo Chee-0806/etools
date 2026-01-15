@@ -199,11 +199,12 @@ pub fn marketplace_update(
 }
 
 /// Check for plugin updates
+/// Returns a list of plugins that have updates available on npm
 #[tauri::command]
 pub fn marketplace_check_updates(
     handle: AppHandle,
-) -> Result<Vec<String>, String> {
-    println!("[Marketplace] Checking for updates");
+) -> Result<Vec<PluginUpdateInfo>, String> {
+    println!("[Marketplace] Checking for plugin updates");
 
     let service = get_marketplace_service()
         .lock()

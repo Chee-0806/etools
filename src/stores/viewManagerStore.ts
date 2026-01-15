@@ -12,9 +12,10 @@ interface ViewManagerState {
   isTransitioning: boolean;
   direction: Direction;
   pendingNavigation: ViewType[];
+  pluginViewData: { pluginId?: string; toolId?: string } | null; // Plugin UI view data
 
   // Actions
-  navigateToView: (view: ViewType, skipResize?: boolean) => Promise<void>;
+  navigateToView: (view: ViewType, skipResize?: boolean, pluginViewData?: { pluginId?: string; toolId?: string }) => Promise<void>;
   goBack: () => Promise<void>;
   canGoBack: () => boolean;
   clearHistory: () => void;
@@ -30,9 +31,10 @@ export const useViewManagerStore = create<ViewManagerState>((set, get) => ({
   isTransitioning: false,
   direction: 'none',
   pendingNavigation: [],
+  pluginViewData: null,
 
   // Navigate to a new view (T048: uses viewTransitionService)
-  navigateToView: async (view: ViewType, skipResize: boolean = false) => {
+  navigateToView: async (view: ViewType, skipResize: boolean = false, pluginViewData?: { pluginId?: string; toolId?: string }) => {
     const { isTransitioning, currentView, history } = get();
 
     console.log('[viewManagerStore] navigateToView 调用:');
@@ -71,6 +73,7 @@ export const useViewManagerStore = create<ViewManagerState>((set, get) => ({
         direction: 'forward',
         isTransitioning: true,
         currentView: view,
+        pluginViewData: pluginViewData || null,
       });
 
       // Trigger smooth transition (T048: coordinates fade + resize)

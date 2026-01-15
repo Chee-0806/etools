@@ -1,8 +1,8 @@
 /**
- * Isolated Plugin Executor Worker (T095) - v2 Architecture
+ * Isolated Plugin Executor Worker - v2 Architecture
  *
  * This worker executes plugins in a truly isolated environment.
- * New architecture (v2): Plugins return PluginSearchResultV2 with actionData instead of action functions.
+ * Plugins return PluginSearchResultV2 with actionData instead of action functions.
  * This allows safe postMessage communication without cloning issues.
  *
  * Communication protocol:
@@ -55,12 +55,12 @@ function createSandboxedInvoke(
   return async (cmd: string, args?: Record<string, unknown>) => {
     // Permission map for Tauri commands
     const PERMISSION_MAP: Record<string, PluginPermission> = {
-      'get_clipboard_history': 'read_clipboard',
-      'paste_clipboard_item': 'write_clipboard',
-      'read_file': 'read_files',
-      'write_file': 'write_files',
-      'execute_shell': 'shell',
-      'send_notification': 'notifications',
+      'get_clipboard_history': 'read:clipboard',
+      'paste_clipboard_item': 'write:clipboard',
+      'read_file': 'read:files',
+      'write_file': 'write:files',
+      'execute_shell': 'shell:execute',
+      'send_notification': 'show:notification',
     };
 
     const required = PERMISSION_MAP[cmd];

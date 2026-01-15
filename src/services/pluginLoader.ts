@@ -1,14 +1,30 @@
 /**
- * Plugin Loader Service (T111)
+ * Plugin Loader Service
  * Handles plugin discovery, loading, and lifecycle management
  *
- * Integrated with Plugin Sandbox (T094-T098) for isolated execution
- * v2 API Only: All plugins execute in Worker with actionData architecture
+ * 职责范围 (Responsibility Scope):
+ * - 插件模块加载（动态导入）
+ * - 插件清单验证（manifest validation）
+ * - 插件注册到沙箱
+ * - 插件生命周期管理（onLoad/onUnload/onEnable/onDisable）
+ * - 插件搜索执行（调用插件 onSearch 方法）
+ * - 权限检查和受限 API 创建
+ * - 用户自定义缩写（abbreviations）集成
+ *
+ * 不包括 (NOT responsible for):
+ * - 插件 CRUD 操作（由 pluginManager.ts 负责）
+ * - 与 Tauri 后端通信（由 pluginManager.ts 负责）
+ * - 插件执行隔离（由 pluginSandbox.ts 负责）
+ * - 插件权限授予/撤销（由 pluginManager.ts 负责）
+ *
+ * 集成 (Integration):
+ * - Plugin Sandbox: 沙箱隔离和权限管理
+ * - Plugin Abbreviation Service: 用户自定义快捷方式
  */
 
 import type { Plugin, PluginManifest } from '@/types/plugin';
 import type { PluginPermission } from '@/lib/plugin-sdk/types';
-import type { PluginSearchResult } from '@/lib/plugin-sdk/types';
+import type { PluginSearchResultV2, PluginV2 } from '@/lib/plugin-sdk/v2-types';
 import { invoke } from '@tauri-apps/api/core';
 import { getPluginSandbox } from './pluginSandbox';
 
@@ -23,17 +39,16 @@ const PLUGIN_SOURCE_INDICATORS = {
 } as const;
 
 /**
- * Permission mapping for Tauri commands (T006, T047)
  * Maps Tauri command names to required plugin permissions
  */
 const PERMISSION_MAP: Record<string, PluginPermission> = {
-  'get_clipboard_history': 'read_clipboard',
-  'paste_clipboard_item': 'write_clipboard',
-  'read_file': 'read_files',
-  'write_file': 'write_files',
-  'http_request': 'network',
-  'execute_shell': 'shell',
-  'send_notification': 'notifications',
+  'get_clipboard_history': 'read:clipboard',
+  'paste_clipboard_item': 'write:clipboard',
+  'read_file': 'read:files',
+  'write_file': 'write:files',
+  'http_request': 'network:request',
+  'execute_shell': 'shell:execute',
+  'send_notification': 'show:notification',
 };
 
 /** Valid plugin sources for loading from backend */
@@ -55,14 +70,14 @@ const UNKNOWN_MANIFEST: PluginManifest = {
 // ============================================================================
 
 /**
- * Raw plugin module interface
+ * Raw plugin module interface (v2)
  * Represents the structure of a plugin module before normalization
  */
 interface RawPluginModule {
   manifest?: PluginManifest;
-  search?: (query: string) => PluginSearchResult[] | Promise<PluginSearchResult[]>;
-  onSearch?: (query: string) => PluginSearchResult[] | Promise<PluginSearchResult[]>;
-  executeAction?: (actionData: unknown) => unknown;
+  onSearch?: (query: string) => PluginSearchResultV2[] | Promise<PluginSearchResultV2[]>;
+  init?(): Promise<void>;
+  onDestroy?(): Promise<void>;
 }
 
 /**
@@ -71,9 +86,9 @@ interface RawPluginModule {
 interface ModuleWithDefault {
   default?: RawPluginModule;
   manifest?: PluginManifest;
-  search?: RawPluginModule['search'];
   onSearch?: RawPluginModule['onSearch'];
-  executeAction?: RawPluginModule['executeAction'];
+  init?: RawPluginModule['init'];
+  onDestroy?: RawPluginModule['onDestroy'];
 }
 
 /**
@@ -108,18 +123,19 @@ function hasPermission(permissions: PluginPermission[], cmd: string): boolean {
 }
 
 /**
- * Extract plugin from module, supporting both default and named exports
+ * Extract plugin from module, supporting both default and named exports (v2)
  */
 function extractPluginFromModule(module: ModuleWithDefault): RawPluginModule {
-  // Default export: export default { manifest, onSearch, executeAction }
+  // Default export: export default { manifest, onSearch, init, onDestroy }
   if (module.default && typeof module.default === 'object') {
     return module.default;
   }
   // Named exports: export const manifest = {...}; export function onSearch() {...}
   return {
     manifest: module.manifest,
-    search: module.onSearch ?? module.search,
-    executeAction: module.executeAction,
+    onSearch: module.onSearch,
+    init: module.init,
+    onDestroy: module.onDestroy,
   };
 }
 
@@ -203,80 +219,6 @@ function logPrefix(pluginId: string): string {
 }
 
 // ============================================================================
-// Action Wrapping
-// ============================================================================
-
-/**
- * Create a wrapped action function that handles execution and clipboard output
- */
-function createWrappedAction(
-  rawPlugin: RawPluginModule,
-  pluginId: string,
-  result: { id: string; actionData: unknown }
-): () => Promise<void> {
-  return async () => {
-    console.log(`${logPrefix(pluginId)} Executing action for ${result.id}`);
-
-    if (typeof rawPlugin.executeAction !== 'function') {
-      console.warn(`${logPrefix(pluginId)} Missing executeAction function`);
-      return;
-    }
-
-    try {
-      const output = await rawPlugin.executeAction(result.actionData);
-
-      // Copy string output to clipboard
-      if (typeof output === 'string') {
-        await invoke('write_clipboard_text', { text: output });
-        const maxLength = 50;
-        const preview = output.length > maxLength
-          ? `${output.substring(0, maxLength)}...`
-          : output;
-        console.log(`${logPrefix(pluginId)} Copied to clipboard: ${preview}`);
-      } else {
-        console.log(`${logPrefix(pluginId)} Action executed (no clipboard output)`);
-      }
-    } catch (error) {
-      console.error(`${logPrefix(pluginId)} Action execution failed:`, error);
-      throw error;
-    }
-  };
-}
-
-/**
- * Wrap plugin search function to auto-convert actionData to executable actions
- */
-function wrapPluginActions(
-  plugin: Plugin,
-  rawPlugin: RawPluginModule,
-  pluginId: string
-): Plugin {
-  const originalSearch = rawPlugin.search ?? rawPlugin.onSearch;
-
-  return {
-    ...plugin,
-    search: async (query: string) => {
-      console.log(`${logPrefix(pluginId)} Calling search with query: ${query}`);
-
-      const results = await originalSearch(query);
-      const resultCount = Array.isArray(results) ? results.length : 0;
-      console.log(`${logPrefix(pluginId)} Returned ${resultCount} results`);
-
-      // Convert actionData to action functions if present
-      if (Array.isArray(results) && resultCount > 0 && 'actionData' in results[0]) {
-        console.log(`${logPrefix(pluginId)} Converting actionData to action`);
-        return results.map((result) => ({
-          ...result,
-          action: createWrappedAction(rawPlugin, pluginId, result),
-        }));
-      }
-
-      return results;
-    },
-  };
-}
-
-// ============================================================================
 // Restricted API
 // ============================================================================
 
@@ -312,7 +254,7 @@ export function createRestrictedAPI(
     },
     network: {
       request: async (url: string, options?: RequestInit) => {
-        if (!permissions.includes('network')) {
+        if (!permissions.includes('network:request')) {
           throw new Error(`Plugin ${pluginId} lacks network permission`);
         }
         return fetch(url, options);
@@ -358,19 +300,18 @@ export class PluginLoader {
       const module = await import(/* @vite-ignore */ normalizedPath);
       const rawPlugin = extractPluginFromModule(module);
 
-      // Normalize plugin: ensure search property exists
+      // Normalize plugin: ensure onSearch property exists (v2 only)
       const plugin: Plugin = {
         ...rawPlugin,
-        search: rawPlugin.search ?? rawPlugin.onSearch,
+        onSearch: rawPlugin.onSearch,
+        init: rawPlugin.init,
+        onDestroy: rawPlugin.onDestroy,
       };
 
       validateManifest(plugin.manifest);
       const { manifest } = plugin;
 
-      // Wrap search function to auto-convert actionData to action
-      const wrappedPlugin = wrapPluginActions(plugin, rawPlugin, manifest.id);
-
-      this.loadedPlugins.set(manifest.id, wrappedPlugin);
+      this.loadedPlugins.set(manifest.id, plugin);
       this.pluginManifests.set(manifest.id, manifest);
 
       // Register plugin with sandbox for permission management
@@ -378,7 +319,7 @@ export class PluginLoader {
 
       console.log(`${logPrefix('Loader')} Loaded: ${manifest.id} v${manifest.version}`);
 
-      return { manifest, plugin: wrappedPlugin };
+      return { manifest, plugin };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`${logPrefix('Loader')} Failed to load from ${modulePath}:`, errorMessage);
@@ -511,11 +452,12 @@ export class PluginLoader {
   }
 
   /**
-   * Search plugins by trigger
-   * Simplified version - directly calls plugin search functions
+   * Search plugins by trigger (v2)
+   * Simplified version - directly calls plugin onSearch functions
+   * Returns PluginSearchResultV2[] with actionData
    */
-  async searchByTrigger(query: string): Promise<PluginSearchResult[]> {
-    const results: PluginSearchResult[] = [];
+  async searchByTrigger(query: string): Promise<PluginSearchResultV2[]> {
+    const results: PluginSearchResultV2[] = [];
     const lowerQuery = query.toLowerCase();
 
     console.log(`${logPrefix('Loader')} searchByTrigger: ${query}`);
@@ -564,17 +506,17 @@ export class PluginLoader {
   }
 
   /**
-   * Execute plugin search with error handling
+   * Execute plugin search with error handling (v2)
    */
   private async executePluginSearch(
     pluginId: string,
     plugin: Plugin,
     query: string
-  ): Promise<PluginSearchResult[] | undefined> {
-    const searchFunction = plugin.search;
+  ): Promise<PluginSearchResultV2[] | undefined> {
+    const searchFunction = plugin.onSearch;
 
     if (typeof searchFunction !== 'function') {
-      console.error(`${logPrefix('Loader')} Plugin ${pluginId} missing search function`);
+      console.error(`${logPrefix('Loader')} Plugin ${pluginId} missing onSearch function`);
       return undefined;
     }
 
@@ -596,13 +538,3 @@ export class PluginLoader {
 /** Singleton plugin loader instance */
 export const pluginLoader = new PluginLoader();
 
-/**
- * Plugin search result interface (re-exported for convenience)
- */
-export interface PluginSearchResult {
-  id: string;
-  title: string;
-  description?: string;
-  icon?: string;
-  action?: () => void | Promise<void>;
-}

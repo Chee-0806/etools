@@ -7,7 +7,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { usePluginState, usePluginDispatch } from '../../services/pluginStateStore';
 import { pluginManagerService } from '../../services/pluginManager';
-import type { Plugin, PluginManifest } from '../../types/plugin';
+import { marketplaceService } from '../../services/pluginManager';
+import type { Plugin, PluginManifest, PluginUpdateInfo } from '../../types/plugin';
 import PluginList from './PluginList';
 import BulkActionsToolbar from './BulkActionsToolbar';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
@@ -29,6 +30,11 @@ const InstalledPluginsView: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>(
     state.statusFilter === 'all' ? '' : state.statusFilter
   );
+
+  // Update checking state
+  const [updateInfo, setUpdateInfo] = useState<PluginUpdateInfo[]>([]);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updatingPluginIds, setUpdatingPluginIds] = useState<Set<string>>(new Set());
 
   // Debounce search query for filtering
   const searchQuery = useDebounce(searchInput, 300);
@@ -167,6 +173,136 @@ const InstalledPluginsView: React.FC = () => {
           title: '卸载失败',
           message: `Failed to uninstall plugin: ${error instanceof Error ? error.message : 'Unknown error'}`,
         },
+      });
+    }
+  };
+
+  /**
+   * Check for plugin updates
+   */
+  const handleCheckUpdates = async () => {
+    try {
+      console.log('[InstalledPluginsView] Checking for updates...');
+      setCheckingUpdates(true);
+
+      const updates = await marketplaceService.checkUpdates();
+      console.log('[InstalledPluginsView] Found updates:', updates);
+
+      setUpdateInfo(updates);
+
+      // Update plugins with update information
+      const updatedPlugins = state.plugins.map((plugin) => {
+        const update = updates.find((u) => {
+          // Match by package name (construct from plugin id)
+          const packageName = `@etools-plugin/${plugin.manifest.id}`;
+          return u.packageName === packageName;
+        });
+
+        if (update) {
+          return {
+            ...plugin,
+            updateAvailable: true,
+            latestVersion: update.latestVersion,
+          };
+        }
+        return plugin;
+      });
+
+      dispatch({ type: 'LOAD_PLUGINS_SUCCESS', payload: updatedPlugins });
+
+      // Show notification
+      if (updates.length > 0) {
+        dispatch({
+          type: 'SHOW_NOTIFICATION',
+          payload: {
+            type: 'info',
+            title: '发现更新',
+            message: `发现 ${updates.length} 个插件有可用更新`,
+          },
+        });
+      } else {
+        dispatch({
+          type: 'SHOW_NOTIFICATION',
+          payload: {
+            type: 'success',
+            title: '检查完成',
+            message: '所有插件都是最新版本',
+          },
+        });
+      }
+    } catch (error) {
+      console.error('[InstalledPluginsView] Check updates failed:', error);
+      dispatch({
+        type: 'SHOW_NOTIFICATION',
+        payload: {
+          type: 'error',
+          title: '检查失败',
+          message: `Failed to check updates: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      });
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  /**
+   * Handle plugin update
+   */
+  const handleUpdate = async (pluginId: string) => {
+    const plugin = state.plugins.find((p) => p.manifest.id === pluginId);
+    if (!plugin) return;
+
+    try {
+      console.log('[InstalledPluginsView] Updating plugin:', pluginId);
+      setUpdatingPluginIds((prev) => new Set(prev).add(pluginId));
+
+      // Get package name from update info
+      const update = updateInfo.find((u) => u.packageName.endsWith(pluginId));
+      if (!update) {
+        throw new Error('Update information not found');
+      }
+
+      // Call marketplace update command
+      await marketplaceService.updatePlugin(update.packageName);
+
+      // Reload plugin from memory
+      const { pluginLoader } = await import('../../services/pluginLoader');
+      try {
+        await pluginLoader.unloadPlugin(pluginId);
+        await pluginLoader.loadPlugin(plugin);
+      } catch (err) {
+        console.warn('[InstalledPluginsView] Failed to reload plugin:', err);
+      }
+
+      // Reload plugins list
+      await loadPlugins();
+
+      // Clear update info for this plugin
+      setUpdateInfo((prev) => prev.filter((u) => u.packageName !== update.packageName));
+
+      dispatch({
+        type: 'SHOW_NOTIFICATION',
+        payload: {
+          type: 'success',
+          title: '更新成功',
+          message: `插件 "${plugin.manifest.name}" 已成功更新到 ${update.latestVersion}`,
+        },
+      });
+    } catch (error) {
+      console.error('[InstalledPluginsView] Update failed:', error);
+      dispatch({
+        type: 'SHOW_NOTIFICATION',
+        payload: {
+          type: 'error',
+          title: '更新失败',
+          message: `Failed to update plugin: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      });
+    } finally {
+      setUpdatingPluginIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(pluginId);
+        return newSet;
       });
     }
   };
@@ -326,6 +462,16 @@ const InstalledPluginsView: React.FC = () => {
             <option value="healthy">健康</option>
             <option value="error">错误</option>
           </select>
+
+          <button
+            className="btn-check-updates"
+            onClick={handleCheckUpdates}
+            disabled={checkingUpdates}
+            aria-label="检查更新"
+            title="检查所有插件的更新"
+          >
+            {checkingUpdates ? '检查中...' : '检查更新'}
+          </button>
         </div>
       </div>
 
@@ -346,6 +492,7 @@ const InstalledPluginsView: React.FC = () => {
         onToggleSelect={handleSelectPlugin}
         onToggleEnable={handleToggleEnable}
         onUninstall={handleUninstall}
+        onUpdate={handleUpdate}
         onPluginClick={(plugin) => {
           dispatch({ type: 'SHOW_DETAILS', payload: plugin.manifest.id });
         }}
